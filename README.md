@@ -190,7 +190,7 @@ JWT / 凭据密钥请使用独立随机值（≥ 32 字节），不要使用文�
 特别感谢以下开源项目和社区：
 
 - [Mihomo](https://github.com/MetaCubeX/mihomo) — 核心代理引擎及 Listener 配置模型
-- [acme.sh](https://github.com/acmesh-official/acme.sh) — SSH 菜单的证书申请/部署/续期（运行时调用的独立工具，GPL-3.0）
+- [acme.sh](https://github.com/acmesh-official/acme.sh) — SSH 菜单的证书申请/部署/续期
 - [clashmeta-inbound](https://github.com/Tychristine/clashmeta-inbound/) — Listener 配置示例与协议参考
 - [3x-ui](https://github.com/MHSanaei/3x-ui) / [s-ui](https://github.com/alireza0/s-ui) — 面板交互与运维思路参考
 - [Gin](https://github.com/gin-gonic/gin) — 后端 HTTP 框架
