@@ -3,6 +3,9 @@
 # Application binary: /usr/local/lib/3m-ui/3m-ui-bin
 # Original work for 3m-ui (EPL-2.0). Ideas inspired by common panel ops menus;
 # not a derivative of any third-party management script source.
+#
+# UI layer (added): POSIX-sh ANSI TUI with automatic fallback to the classic
+# plain-text menu, plus a zh/en language switch. Business logic unchanged.
 
 set -eu
 
@@ -13,7 +16,10 @@ INSTALLER="$BASE/install.sh"
 UPDATER="$BASE/update.sh"
 UNINSTALLER="$BASE/uninstall.sh"
 APP_BIN="$BASE/3m-ui-bin"
-CONFIG_FILE="$ROOT/etc/3m-ui/config.yaml"
+CONFIG_DIR="$ROOT/etc/3m-ui"
+CONFIG_FILE="$CONFIG_DIR/config.yaml"
+CERT_DIR="$CONFIG_DIR/certs"
+MENU_CONF="$CONFIG_DIR/menu.conf"
 DATA_DIR="${THREE_M_UI_DATA_DIR:-}"
 if [ -z "$DATA_DIR" ] && [ -s "$BASE/DATA_DIRECTORY" ]; then
     DATA_DIR="$(cat "$BASE/DATA_DIRECTORY")"
@@ -26,29 +32,574 @@ say() { printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
 need_root() {
-    [ "$(id -u)" -eq 0 ] || { err '请使用 root 运行 3m-ui 管理命令。 / Run as root.'; exit 1; }
+    [ "$(id -u)" -eq 0 ] || { err "$(t need_root)"; exit 1; }
 }
 
-confirm() {
-    # usage: confirm "prompt" [default y|n]
-    prompt="$1"
+# --- i18n --------------------------------------------------------------------
+# Language: THREE_M_UI_LANG > menu.conf > locale autodetect > zh (default)
+
+LANG_CODE=''
+
+menu_conf_get() {
+    # menu_conf_get KEY -> value (empty when unset)
+    [ -f "$MENU_CONF" ] || return 0
+    awk -v k="$1" '
+        /^[[:space:]]*#/ { next }
+        {
+            line=$0
+            sub(/[[:space:]]*#.*/, "", line)
+            p = index(line, "=")
+            if (p == 0) next
+            key = substr(line, 1, p-1)
+            val = substr(line, p+1)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+            gsub(/^["\047]|["\047]$/, "", val)
+            if (key == k) { print val; exit }
+        }
+    ' "$MENU_CONF"
+}
+
+menu_conf_set() {
+    # menu_conf_set KEY VALUE  (atomic-ish rewrite, preserves other keys)
+    key=$1
+    val=$2
+    mkdir -p "$CONFIG_DIR" 2>/dev/null || true
+    tmp="${MENU_CONF}.tmp.$$"
+    : > "$tmp"
+    found=0
+    if [ -f "$MENU_CONF" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+                "$key="*)
+                    printf '%s=%s\n' "$key" "$val" >> "$tmp"
+                    found=1
+                    ;;
+                *) printf '%s\n' "$line" >> "$tmp" ;;
+            esac
+        done < "$MENU_CONF"
+    fi
+    [ "$found" -eq 1 ] || printf '%s=%s\n' "$key" "$val" >> "$tmp"
+    mv "$tmp" "$MENU_CONF"
+}
+
+detect_lang() {
+    # locale-based detection: any zh* locale -> zh, otherwise en
+    for v in "${THREE_M_UI_LANG:-}" "${LC_ALL:-}" "${LC_MESSAGES:-}" "${LANG:-}"; do
+        case "$v" in
+            zh|zh_*|zh_CN*|zh_TW*|zh_HK*) printf 'zh'; return 0 ;;
+        esac
+    done
+    case "${THREE_M_UI_LANG:-}" in
+        zh|en) printf '%s' "${THREE_M_UI_LANG}"; return 0 ;;
+    esac
+    printf ''
+}
+
+lang_init() {
+    # precedence: THREE_M_UI_LANG (explicit override) > menu.conf > autodetect
+    # "auto" explicitly ignores the persisted value and re-detects, matching
+    # how THREE_M_UI_TUI overrides the saved UI mode.
+    code=''
+    case "${THREE_M_UI_LANG:-}" in
+        zh|en) code="$THREE_M_UI_LANG" ;;
+        auto)  code=$(detect_lang) ;;
+    esac
+    [ -n "$code" ] || code=$(menu_conf_get lang)
+    [ -n "$code" ] || code=$(detect_lang)
+    case "$code" in
+        zh|en) LANG_CODE="$code" ;;
+        *) LANG_CODE=zh ;;
+    esac
+}
+
+lang_init
+
+t() {
+    # t KEY -> localized string (falls back to the key itself)
+    key=$1
+    case "$LANG_CODE" in
+        en) _t_en "$key" ;;
+        *)  _t_zh "$key" ;;
+    esac
+}
+
+_t_zh() {
+    case "$1" in
+        # generic
+        need_root)        printf '%s' '请使用 root 运行 3m-ui 管理命令。' ;;
+        g_select)         printf '%s' '请选择' ;;
+        g_press_enter)    printf '%s' '按回车返回菜单' ;;
+        g_enter_key)      printf '%s' '按回车继续' ;;
+        g_invalid)        printf '%s' '无效选择，请重新输入。' ;;
+        g_cancelled)      printf '%s' '已取消。' ;;
+        g_back)           printf '%s' '返回' ;;
+        g_yes)            printf '%s' '是' ;;
+        g_no)             printf '%s' '否' ;;
+        g_exit)           printf '%s' '退出' ;;
+        # main menu
+        m_title1)         printf '%s' '3m-ui 管理控制台' ;;
+        m_title2)         printf '%s' 'Mihomo Core Management UI' ;;
+        m_install)        printf '%s' '安装/修复' ;;
+        m_update)         printf '%s' '更新到最新' ;;
+        m_update_ver)     printf '%s' '更新到指定版本' ;;
+        m_status)         printf '%s' '运行状态' ;;
+        m_start)          printf '%s' '启动' ;;
+        m_restart)        printf '%s' '重启' ;;
+        m_stop)           printf '%s' '停止' ;;
+        m_autostart)      printf '%s' '开机自启 开/关' ;;
+        m_logs)           printf '%s' '日志' ;;
+        m_version)        printf '%s' '版本' ;;
+        m_access)         printf '%s' '访问信息 / URI' ;;
+        m_port)           printf '%s' '修改面板端口' ;;
+        m_puburl)         printf '%s' '设置 public_url' ;;
+        m_paths)          printf '%s' '路径/订阅端口' ;;
+        m_resetadm)       printf '%s' '重置管理员密码' ;;
+        m_resetconf)      printf '%s' 'SSH 救援重置面板配置' ;;
+        m_health)         printf '%s' '健康检查' ;;
+        m_bbr)            printf '%s' 'BBR' ;;
+        m_geo)            printf '%s' '更新 Geo' ;;
+        m_fw)             printf '%s' '防火墙放行提示' ;;
+        m_ssl)            printf '%s' 'SSL 证书助手' ;;
+        m_backup)         printf '%s' '备份' ;;
+        m_selfupd)        printf '%s' '更新 3m-ui（含管理脚本）' ;;
+        m_lang)           printf '%s' '语言 / Language' ;;
+        m_uninst)         printf '%s' '卸载' ;;
+        # sub menus
+        bbr_title)        printf '%s' 'BBR' ;;
+        bbr_status)       printf '%s' '状态' ;;
+        bbr_enable)       printf '%s' '启用 BBR' ;;
+        bbr_disable)      printf '%s' '关闭 BBR' ;;
+        ssl_title)        printf '%s' 'SSL 证书助手' ;;
+        ssl_certbot)      printf '%s' '打印 certbot 命令 (standalone)' ;;
+        ssl_acme)         printf '%s' '打印 acme.sh 命令 (standalone)' ;;
+        ssl_cf)           printf '%s' '打印 Cloudflare DNS (acme.sh) 示例' ;;
+        rc_title)         printf '%s' '重置范围' ;;
+        rc_panel)         printf '%s' '仅面板 (listen + SSL)' ;;
+        rc_pub)           printf '%s' '面板 + 订阅地址' ;;
+        rc_all)           printf '%s' '面板 + 订阅 + 节点公网地址' ;;
+        ed_title)         printf '%s' '开机自启' ;;
+        ed_enable)        printf '%s' '启用' ;;
+        ed_disable)       printf '%s' '禁用' ;;
+        log_follow)       printf '%s' '跟随输出?' ;;
+        lang_title)       printf '%s' '语言 / Language' ;;
+        lang_zh)          printf '%s' '中文' ;;
+        lang_en)          printf '%s' 'English' ;;
+        # prompts / inputs
+        i_port)           printf '%s' '输入新端口 (1-65535, 回车取消)' ;;
+        i_puburl)         printf '%s' '输入新的 public_url (例如 https://example.com ，回车取消)' ;;
+        i_webpath)        printf '%s' 'web_path (面板路径前缀)' ;;
+        i_subpath)        printf '%s' 'sub_path (订阅路径前缀)' ;;
+        i_subport)        printf '%s' 'sub_port (0=与面板同端口)' ;;
+        i_listen)         printf '%s' 'listen (空=全部接口)' ;;
+        i_domain)         printf '%s' '域名 (例 dzx.qzz.io)' ;;
+        i_email)          printf '%s' '邮箱 (可空)' ;;
+        i_version)        printf '%s' '输入版本号 (如 v1.1.1，回车取消)' ;;
+        i_cur)            printf '%s' '现' ;;
+        i_empty)          printf '%s' '<空>' ;;
+        # business messages
+        status_running)   printf '%s' '状态: 运行中' ;;
+        status_stopped)   printf '%s' '状态: 未运行' ;;
+        status_boot_yes)  printf '%s' '开机自启: 是' ;;
+        status_boot_no)   printf '%s' '开机自启: 否' ;;
+        status_app)       printf '%s' '应用程序' ;;
+        status_noapp)     printf '%s' '应用程序二进制不存在。' ;;
+        status_init_bad)  printf '%s' 'init: unsupported' ;;
+        logs_nofile)      printf '%s' '未找到日志文件 /var/log/3m-ui/3m-ui.log' ;;
+        logs_nosys)       printf '%s' '未找到可用的日志系统。' ;;
+        ver_notfound)     printf '%s' '3m-ui 未安装或无法读取版本信息。' ;;
+        access_cfg)       printf '%s' '配置文件' ;;
+        access_port)      printf '%s' '面板端口' ;;
+        access_listen)    printf '%s' '监听' ;;
+        access_uri)       printf '%s' '面板访问' ;;
+        access_example)   printf '%s' '面板访问示例 (请换成公网 IP/域名)' ;;
+        access_https)     printf '%s' '面板启用 HTTPS 后，请使用面板中配置的域名和 HTTPS 端口。' ;;
+        access_ok)        printf '%s' '面板健康检查通过' ;;
+        access_bad)       printf '%s' '面板健康检查未通过或未就绪 (可稍后重试)' ;;
+        access_cmd)       printf '%s' '管理命令: 3m-ui' ;;
+        access_pwdhint)   printf '%s' '初始密码在首次安装时随机生成；遗失可用菜单「重置管理员密码」。' ;;
+        port_bad)         printf '%s' '无效端口。' ;;
+        port_range)       printf '%s' '端口必须在 1-65535 范围内。' ;;
+        port_unchanged)   printf '%s' '端口未变更。' ;;
+        port_changed)     printf '%s' '端口已更改' ;;
+        port_restarting)  printf '%s' '正在重启 3m-ui...' ;;
+        port_ok)          printf '%s' '已重启。配置端口' ;;
+        port_fail)        printf '%s' '启动失败，请检查: 3m-ui logs' ;;
+        pub_written)      printf '%s' '已写入 public_url。' ;;
+        paths_hint)       printf '%s' '留空则保持现有值。' ;;
+        paths_badport)    printf '%s' 'sub_port 无效' ;;
+        paths_written)    printf '%s' '已写入配置。' ;;
+        paths_none)       printf '%s' '未修改。' ;;
+        restart_ask)      printf '%s' '是否立即重启面板?' ;;
+        restart_ok)       printf '%s' '已重启' ;;
+        restart_fail)     printf '%s' '重启后未运行' ;;
+        adm_hint)         printf '%s' '将随机生成新的管理员密码，并要求下次登录修改密码。' ;;
+        adm_confirm)      printf '%s' '确认继续?' ;;
+        rc_head)          printf '%s' '=== SSH 救援 ===' ;;
+        rc_desc1)         printf '%s' '当面板配置错误（端口/SSL/监听地址）导致 Web 无法访问时，' ;;
+        rc_desc2)         printf '%s' '可通过此菜单重置为安全默认值，重启后面板以 HTTP 模式启动。' ;;
+        rc_scope)         printf '%s' '重置范围' ;;
+        rc_will)          printf '%s' '将以' ;;
+        rc_will2)         printf '%s' '重置。该操作会停止面板、修改 config.yaml + DB，然后重启面板。' ;;
+        rc_keep)          printf '%s' '不会删除用户 / 节点 / 流量记录 / 凭证。' ;;
+        rc_stop)          printf '%s' '停止 3m-ui 服务...' ;;
+        rc_fail)          printf '%s' 'reset-config 失败，请查看上方错误。面板将以旧配置重启。' ;;
+        rc_start)         printf '%s' '重启 3m-ui 服务...' ;;
+        rc_done)          printf '%s' '重置完成。请用 HTTP（不是 HTTPS）访问面板:' ;;
+        rc_sslagain)      printf '%s' '在 Web UI 重新应用 SSL / 域名 / 订阅地址设置。' ;;
+        rc_startfail)     printf '%s' '面板启动失败，请检查: 3m-ui logs' ;;
+        cfg_missing)      printf '%s' '配置不存在' ;;
+        app_missing)      printf '%s' '未找到程序' ;;
+        script_missing)   printf '%s' '管理脚本不存在' ;;
+        bbr_linuxonly)    printf '%s' '仅支持 Linux。' ;;
+        bbr_already)      printf '%s' 'BBR 已启用。' ;;
+        bbr_done)         printf '%s' '已尝试启用 BBR。' ;;
+        bbr_off)          printf '%s' '已尝试恢复默认拥塞控制 (cubic)。重启后仍可能被其它 sysctl 覆盖。' ;;
+        ssl_head1)        printf '%s' '面板 HTTPS 推荐在「系统设置 → SSL」使用内置 ACME。' ;;
+        ssl_head2)        printf '%s' '以下为可选：用外部工具申请 PEM，供节点或反代使用。' ;;
+        ssl_stop_hint)    printf '%s' '# 申请前请确保 80 未被占用（可临时: systemctl stop 3m-ui）' ;;
+        ssl_cert)         printf '%s' '# 证书' ;;
+        ssl_key)          printf '%s' '# 私钥' ;;
+        ssl_cf_note)      printf '%s' '# 不占用 80，适合面板已占用 ACME 端口时给节点另签证书' ;;
+        geo_panel)        printf '%s' 'Geo 数据库请在面板「系统设置 → 网络与 Geo」中更新。' ;;
+        geo_en)           printf '%s' 'Use Settings → Network & Geo in the authenticated panel to update Geo files.' ;;
+        geo_note)         printf '%s' '该入口会显示每个文件的更新结果；管理脚本不会下载未校验的 latest 资产。' ;;
+        fw_try)           printf '%s' '尝试放行常用端口 (22, 80, 443, 面板端口)...' ;;
+        fw_ufw)           printf '%s' '已向 ufw 提交规则 (请自行 ufw enable / status)。' ;;
+        fw_firewalld)     printf '%s' '已尝试 firewalld 放行。' ;;
+        fw_none)          printf '%s' '未检测到 ufw/firewalld。请在云安全组放行 80/443 与面板端口。' ;;
+        self_hint)        printf '%s' '管理脚本会随已验证的面板版本一起更新。' ;;
+        self_confirm)     printf '%s' '通过已验证的发布更新 3m-ui（包括管理脚本）？' ;;
+        upd_to)           printf '%s' '将更新到' ;;
+        svc_enabled)      printf '%s' '已设置开机自启' ;;
+        svc_disabled)     printf '%s' '已取消开机自启' ;;
+        svc_enable_fail)  printf '%s' 'enable 失败（服务单元是否已安装？）' ;;
+        svc_disable_fail) printf '%s' 'disable 失败' ;;
+        svc_init_bad)     printf '%s' '不支持的 init' ;;
+        svc_noinit)       printf '%s' '未检测到 systemd 或 OpenRC。' ;;
+        # lang / uimode commands
+        lang_usage)       printf '%s' '用法: 3m-ui lang [zh|en|auto]' ;;
+        lang_current)     printf '%s' '当前语言' ;;
+        lang_set)         printf '%s' '语言已设置为' ;;
+        lang_saved)       printf '%s' '已保存到' ;;
+        cfg_no_server)    printf '%s' '配置中未找到 server: 段，无法写入' ;;
+        fw_confirm)       printf '%s' '将放行 22 / 80 / 443 与面板端口，这会扩大公网暴露面。' ;;
+        ssl_disclaimer)   printf '%s' '# 以下仅为示例命令，请自行确认来源后再执行' ;;
+        health_ok)        printf '%s' '✓ 健康检查通过' ;;
+        health_fail)      printf '%s' '✗ 健康检查未通过' ;;
+        health_detail)    printf '%s' '详情' ;;
+        ed_unchanged)     printf '%s' '未变更。' ;;
+        ed_invalid)       printf '%s' '无效输入' ;;
+        sysctl_mkdir_fail) printf '%s' '无法创建 /etc/sysctl.d' ;;
+        ssl_install_acme)   printf '%s' '安装 / 更新 acme.sh' ;;
+        ssl_issue_standalone) printf '%s' '申请证书 (standalone, 需 80 端口空闲)' ;;
+        ssl_issue_dns)      printf '%s' '申请证书 (DNS API, 不占 80)' ;;
+        ssl_deploy)         printf '%s' '安装证书到 3m-ui 并重载面板' ;;
+        ssl_list)           printf '%s' '证书列表' ;;
+        ssl_renew)          printf '%s' '续期证书' ;;
+        ssl_print)          printf '%s' '打印命令 (供手动执行)' ;;
+        acme_missing)       printf '%s' '未检测到 acme.sh。' ;;
+        acme_install_ask)   printf '%s' '现在安装 acme.sh?' ;;
+        acme_installing)    printf '%s' '正在安装 acme.sh ...' ;;
+        acme_installed)     printf '%s' 'acme.sh 已就绪' ;;
+        acme_install_fail)  printf '%s' 'acme.sh 安装失败（需要网络访问 get.acme.sh）' ;;
+        acme_need_curl)     printf '%s' '需要 curl 或 wget 才能安装 acme.sh' ;;
+        acme_standalone_ask) printf '%s' 'standalone 模式需临时占用 80 端口，继续?' ;;
+        acme_dns_hint)      printf '%s' 'DNS 模式需要预先导出对应服务商的 API 凭据环境变量。' ;;
+        acme_dns_api)       printf '%s' 'DNS API (如 dns_cf / dns_ali / dns_dp)' ;;
+        cert_mkdir_fail)    printf '%s' '无法创建证书目录' ;;
+        cert_deployed)      printf '%s' '证书已安装' ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+_t_en() {
+    case "$1" in
+        need_root)        printf '%s' 'Please run 3m-ui as root.' ;;
+        g_select)         printf '%s' 'Select' ;;
+        g_press_enter)    printf '%s' 'Press Enter to return' ;;
+        g_press_any)      printf '%s' 'Press any key to return' ;;
+        g_enter_key)      printf '%s' 'Press Enter to continue' ;;
+        g_invalid)        printf '%s' 'Invalid choice, please try again.' ;;
+        g_cancelled)      printf '%s' 'Cancelled.' ;;
+        g_back)           printf '%s' 'Back' ;;
+        g_yes)            printf '%s' 'Yes' ;;
+        g_no)             printf '%s' 'No' ;;
+        g_nav)            printf '%s' '↑↓ Select / Enter confirm / q back' ;;
+        g_exit)           printf '%s' 'Exit' ;;
+        m_title1)         printf '%s' '3m-ui Management Console' ;;
+        m_title2)         printf '%s' 'Mihomo Core Management UI' ;;
+        m_install)        printf '%s' 'Install / Repair' ;;
+        m_update)         printf '%s' 'Update to latest' ;;
+        m_update_ver)     printf '%s' 'Update to version' ;;
+        m_status)         printf '%s' 'Status' ;;
+        m_start)          printf '%s' 'Start' ;;
+        m_restart)        printf '%s' 'Restart' ;;
+        m_stop)           printf '%s' 'Stop' ;;
+        m_autostart)      printf '%s' 'Enable / Disable autostart' ;;
+        m_logs)           printf '%s' 'Logs' ;;
+        m_version)        printf '%s' 'Version' ;;
+        m_access)         printf '%s' 'Access info' ;;
+        m_port)           printf '%s' 'Change port' ;;
+        m_puburl)         printf '%s' 'Set public_url' ;;
+        m_paths)          printf '%s' 'Paths / subscription port' ;;
+        m_resetadm)       printf '%s' 'Reset admin password' ;;
+        m_resetconf)      printf '%s' 'Reset-config (SSH rescue)' ;;
+        m_health)         printf '%s' 'Healthcheck' ;;
+        m_bbr)            printf '%s' 'BBR' ;;
+        m_geo)            printf '%s' 'Update Geo' ;;
+        m_fw)             printf '%s' 'Firewall hint' ;;
+        m_ssl)            printf '%s' 'SSL certificate helper' ;;
+        m_backup)         printf '%s' 'Backup' ;;
+        m_selfupd)        printf '%s' 'Update 3m-ui (incl. scripts)' ;;
+        m_lang)           printf '%s' 'Language' ;;
+        m_uimode)         printf '%s' 'UI mode' ;;
+        m_uninst)         printf '%s' 'Uninstall' ;;
+        bbr_title)        printf '%s' 'BBR' ;;
+        bbr_status)       printf '%s' 'Status' ;;
+        bbr_enable)       printf '%s' 'Enable BBR' ;;
+        bbr_disable)      printf '%s' 'Disable BBR' ;;
+        ssl_title)        printf '%s' 'SSL certificate helper' ;;
+        ssl_certbot)      printf '%s' 'Print certbot command (standalone)' ;;
+        ssl_acme)         printf '%s' 'Print acme.sh command (standalone)' ;;
+        ssl_cf)           printf '%s' 'Print Cloudflare DNS (acme.sh) example' ;;
+        rc_title)         printf '%s' 'Reset scope' ;;
+        rc_panel)         printf '%s' 'Panel only (listen + SSL)' ;;
+        rc_pub)           printf '%s' 'Panel + subscription URL' ;;
+        rc_all)           printf '%s' 'Panel + subscription + node public address' ;;
+        ed_title)         printf '%s' 'Autostart' ;;
+        ed_enable)        printf '%s' 'Enable' ;;
+        ed_disable)       printf '%s' 'Disable' ;;
+        log_follow)       printf '%s' 'Follow output?' ;;
+        lang_title)       printf '%s' 'Language' ;;
+        lang_zh)          printf '%s' 'Chinese' ;;
+        lang_en)          printf '%s' 'English' ;;
+        uimode_title)     printf '%s' 'UI mode' ;;
+        uimode_tui)       printf '%s' 'TUI (arrow-key navigation)' ;;
+        uimode_classic)   printf '%s' 'Classic (plain-text menu)' ;;
+        i_port)           printf '%s' 'New port (1-65535, Enter to cancel)' ;;
+        i_puburl)         printf '%s' 'New public_url (e.g. https://example.com , Enter to cancel)' ;;
+        i_webpath)        printf '%s' 'web_path (panel path prefix)' ;;
+        i_subpath)        printf '%s' 'sub_path (subscription path prefix)' ;;
+        i_subport)        printf '%s' 'sub_port (0=same as panel)' ;;
+        i_listen)         printf '%s' 'listen (empty=all interfaces)' ;;
+        i_domain)         printf '%s' 'Domain (e.g. example.com)' ;;
+        i_email)          printf '%s' 'Email (optional)' ;;
+        i_version)        printf '%s' 'Version (e.g. v1.1.1, Enter to cancel)' ;;
+        i_cur)            printf '%s' 'current' ;;
+        i_empty)          printf '%s' '<empty>' ;;
+        status_running)   printf '%s' 'Status: running' ;;
+        status_stopped)   printf '%s' 'Status: stopped' ;;
+        status_boot_yes)  printf '%s' 'Autostart: enabled' ;;
+        status_boot_no)   printf '%s' 'Autostart: disabled' ;;
+        status_app)       printf '%s' 'Application' ;;
+        status_noapp)     printf '%s' 'Application binary not found.' ;;
+        status_init_bad)  printf '%s' 'init: unsupported' ;;
+        logs_nofile)      printf '%s' 'Log file not found: /var/log/3m-ui/3m-ui.log' ;;
+        logs_nosys)       printf '%s' 'No usable log system found.' ;;
+        ver_notfound)     printf '%s' '3m-ui is not installed or version info is unreadable.' ;;
+        access_cfg)       printf '%s' 'Config file' ;;
+        access_port)      printf '%s' 'Panel port' ;;
+        access_listen)    printf '%s' 'Listen' ;;
+        access_uri)       printf '%s' 'Panel URI' ;;
+        access_example)   printf '%s' 'Panel access examples (replace with your public IP/domain)' ;;
+        access_https)     printf '%s' 'Once panel HTTPS is enabled, use the domain and HTTPS port set in the panel.' ;;
+        access_ok)        printf '%s' 'Panel healthcheck OK' ;;
+        access_bad)       printf '%s' 'Panel healthcheck failed or not ready (retry later)' ;;
+        access_cmd)       printf '%s' 'Management command: 3m-ui' ;;
+        access_pwdhint)   printf '%s' 'The initial password is generated on first install; use "Reset admin password" if lost.' ;;
+        port_bad)         printf '%s' 'Invalid port.' ;;
+        port_range)       printf '%s' 'Port must be in range 1-65535.' ;;
+        port_unchanged)   printf '%s' 'Port unchanged.' ;;
+        port_changed)     printf '%s' 'Port changed' ;;
+        port_restarting)  printf '%s' 'Restarting 3m-ui...' ;;
+        port_ok)          printf '%s' 'Restarted. Configured port' ;;
+        port_fail)        printf '%s' 'Start failed, check: 3m-ui logs' ;;
+        pub_written)      printf '%s' 'public_url written.' ;;
+        paths_hint)       printf '%s' 'Leave blank to keep the current value.' ;;
+        paths_badport)    printf '%s' 'Invalid sub_port' ;;
+        paths_written)    printf '%s' 'Configuration written.' ;;
+        paths_none)       printf '%s' 'Nothing changed.' ;;
+        restart_ask)      printf '%s' 'Restart the panel now?' ;;
+        restart_ok)       printf '%s' 'Restarted' ;;
+        restart_fail)     printf '%s' 'Not running after restart' ;;
+        adm_hint)         printf '%s' 'A new admin password will be generated and a password change required on next login.' ;;
+        adm_confirm)      printf '%s' 'Continue?' ;;
+        rc_head)          printf '%s' '=== SSH Rescue ===' ;;
+        rc_desc1)         printf '%s' 'When a bad panel config (port/SSL/listen) makes the web UI unreachable,' ;;
+        rc_desc2)         printf '%s' 'reset to safe defaults here; the panel starts in HTTP mode after restart.' ;;
+        rc_scope)         printf '%s' 'Reset scope' ;;
+        rc_will)          printf '%s' 'Resetting with' ;;
+        rc_will2)         printf '%s' 'This stops the panel, updates config.yaml + DB, then restarts it.' ;;
+        rc_keep)          printf '%s' 'Users / nodes / traffic records / credentials are NOT deleted.' ;;
+        rc_stop)          printf '%s' 'Stopping 3m-ui service...' ;;
+        rc_fail)          printf '%s' 'reset-config failed, see errors above. The panel restarts with the old config.' ;;
+        rc_start)         printf '%s' 'Starting 3m-ui service...' ;;
+        rc_done)          printf '%s' 'Reset done. Access the panel over HTTP (not HTTPS):' ;;
+        rc_sslagain)      printf '%s' 'Re-apply SSL / domain / subscription settings in the web UI.' ;;
+        rc_startfail)     printf '%s' 'Panel failed to start, check: 3m-ui logs' ;;
+        cfg_missing)      printf '%s' 'Config not found' ;;
+        app_missing)      printf '%s' 'Binary not found' ;;
+        script_missing)   printf '%s' 'Management script not found' ;;
+        bbr_linuxonly)    printf '%s' 'Linux only.' ;;
+        bbr_already)      printf '%s' 'BBR is already enabled.' ;;
+        bbr_done)         printf '%s' 'Tried to enable BBR.' ;;
+        bbr_off)          printf '%s' 'Restored default congestion control (cubic). Other sysctl files may override after reboot.' ;;
+        ssl_head1)        printf '%s' 'Panel HTTPS is best configured via Settings → SSL using built-in ACME.' ;;
+        ssl_head2)        printf '%s' 'Optional below: issue PEM with external tools for nodes or a reverse proxy.' ;;
+        ssl_stop_hint)    printf '%s' '# Ensure port 80 is free first (e.g. systemctl stop 3m-ui)' ;;
+        ssl_cert)         printf '%s' '# Certificate' ;;
+        ssl_key)          printf '%s' '# Private key' ;;
+        ssl_cf_note)      printf '%s' '# Does not use port 80; handy when the panel already occupies the ACME port' ;;
+        geo_panel)        printf '%s' 'Update Geo databases in Settings → Network & Geo in the panel.' ;;
+        geo_en)           printf '%s' 'Use Settings → Network & Geo in the authenticated panel to update Geo files.' ;;
+        geo_note)         printf '%s' 'That view shows the result per file; this script never downloads unverified latest assets.' ;;
+        fw_try)           printf '%s' 'Opening common ports (22, 80, 443, panel port)...' ;;
+        fw_ufw)           printf '%s' 'Rules submitted to ufw (run ufw enable / status yourself).' ;;
+        fw_firewalld)     printf '%s' 'Tried to open ports via firewalld.' ;;
+        fw_none)          printf '%s' 'No ufw/firewalld found. Open 80/443 and the panel port in your cloud security group.' ;;
+        self_hint)        printf '%s' 'The management script ships together with a verified panel release.' ;;
+        self_confirm)     printf '%s' 'Update 3m-ui (including the management script) via the verified release?' ;;
+        upd_to)           printf '%s' 'Updating to' ;;
+        svc_enabled)      printf '%s' 'Enabled on boot' ;;
+        svc_disabled)     printf '%s' 'Disabled on boot' ;;
+        svc_enable_fail)  printf '%s' 'enable failed (is the service unit installed?)' ;;
+        svc_disable_fail) printf '%s' 'disable failed' ;;
+        svc_init_bad)     printf '%s' 'Unsupported init' ;;
+        svc_noinit)       printf '%s' 'No systemd or OpenRC detected.' ;;
+        lang_usage)       printf '%s' 'Usage: 3m-ui lang [zh|en|auto]' ;;
+        lang_current)     printf '%s' 'Current language' ;;
+        lang_set)         printf '%s' 'Language set to' ;;
+        lang_saved)       printf '%s' 'Saved to' ;;
+        uimode_usage)     printf '%s' 'Usage: 3m-ui tui [on|off|auto]' ;;
+        uimode_current)   printf '%s' 'Current UI mode' ;;
+        uimode_set)       printf '%s' 'UI mode set to' ;;
+        uimode_now)       printf '%s' 'Active backend' ;;
+        cfg_no_server)    printf '%s' 'No server: block in config, cannot write' ;;
+        fw_confirm)       printf '%s' 'This opens 22 / 80 / 443 and the panel port, widening public exposure.' ;;
+        ssl_disclaimer)   printf '%s' '# Example commands only - verify the source before running' ;;
+        health_ok)        printf '%s' 'Healthcheck OK' ;;
+        health_fail)      printf '%s' 'Healthcheck failed' ;;
+        health_detail)    printf '%s' 'Details' ;;
+        ed_unchanged)     printf '%s' 'Unchanged.' ;;
+        ed_invalid)       printf '%s' 'Invalid input' ;;
+        sysctl_mkdir_fail) printf '%s' 'Cannot create /etc/sysctl.d' ;;
+        ssl_install_acme)   printf '%s' 'Install / update acme.sh' ;;
+        ssl_issue_standalone) printf '%s' 'Issue certificate (standalone, port 80 must be free)' ;;
+        ssl_issue_dns)      printf '%s' 'Issue certificate (DNS API, no port 80)' ;;
+        ssl_deploy)         printf '%s' 'Install certificate into 3m-ui and reload' ;;
+        ssl_list)           printf '%s' 'List certificates' ;;
+        ssl_renew)          printf '%s' 'Renew certificate' ;;
+        ssl_print)          printf '%s' 'Print commands (run manually)' ;;
+        acme_missing)       printf '%s' 'acme.sh not found.' ;;
+        acme_install_ask)   printf '%s' 'Install acme.sh now?' ;;
+        acme_installing)    printf '%s' 'Installing acme.sh ...' ;;
+        acme_installed)     printf '%s' 'acme.sh is ready' ;;
+        acme_install_fail)  printf '%s' 'Failed to install acme.sh (needs network access to get.acme.sh)' ;;
+        acme_need_curl)     printf '%s' 'curl or wget is required to install acme.sh' ;;
+        acme_standalone_ask) printf '%s' 'Standalone mode needs port 80 temporarily. Continue?' ;;
+        acme_dns_hint)      printf '%s' 'DNS mode requires the provider API credentials exported beforehand.' ;;
+        acme_dns_api)       printf '%s' 'DNS API (e.g. dns_cf / dns_ali / dns_dp)' ;;
+        cert_mkdir_fail)    printf '%s' 'Cannot create the certificate directory' ;;
+        cert_deployed)      printf '%s' 'Certificate installed' ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# --- menu rendering / input ---------------------------------------------------
+
+_TTY_SAVED=''
+
+# Reads exactly one byte into $_B. Same sentinel trick: with icrnl enabled,
+# Enter arrives as "\n" and $(dd ...) would otherwise yield an empty string,
+# making Enter indistinguishable from a timeout.
+# ui_menu TITLE_KEY ITEM_KEY...
+# Renders the numbered menu on stderr and prints the raw typed token on stdout,
+# so callers can capture the choice with $(ui_menu ...) and legacy keys
+# ("1".."23", "a", "0") keep working.
+ui_menu() {
+    _ui_menu_classic "$@"
+}
+
+# Classic backend: the original box-drawn numbered menu, rendered to stderr.
+# Prints the raw input token so legacy keys ("1".."23", "a", "0") keep working.
+_ui_menu_classic() {
+    title=$1
+    shift
+    printf '\n' >&2
+    printf '%s\n' '╭──────────────────────────────────────────────╮' >&2
+    printf '%s\n' "$(_box_line "$(t m_title1)")" >&2
+    printf '%s\n' "$(_box_line "$(t m_title2)")" >&2
+    printf '%s\n' '╰──────────────────────────────────────────────╯' >&2
+    printf '\n' >&2
+    i=1
+    for item in "$@"; do
+        if [ "$i" -lt 10 ]; then
+            printf '  %s. %s\n' "$i" "$(t "$item")" >&2
+        else
+            printf ' %s. %s\n' "$i" "$(t "$item")" >&2
+        fi
+        i=$((i + 1))
+    done
+    printf '\n%s: ' "$(t g_select)" >&2
+    IFS= read -r choice || return 1
+    printf '%s' "$choice"
+}
+
+_box_line() {
+    # pads a title inside the 50-col box (best effort; CJK width not exact)
+    printf '│      %s' "$1"
+}
+
+# ui_input PROMPT_KEY [DEFAULT] -> prints the entered text (empty = cancelled)
+ui_input() {
+    prompt=$1
+    def="${2:-}"
+    if [ -n "$def" ]; then
+        printf '%s (%s: %s): ' "$(t "$prompt")" "$(t i_cur)" "$def" >&2
+    else
+        printf '%s: ' "$(t "$prompt")" >&2
+    fi
+    IFS= read -r ans || return 0
+    printf '%s' "$ans"
+}
+
+# ui_confirm PROMPT_KEY [y|n] -> exit 0 = yes, 1 = no
+ui_confirm() {
+    prompt=$1
     def="${2:-n}"
-    printf '%s [%s]: ' "$prompt" "$def"
+    case "$def" in
+        y|Y) hint="$(t g_yes)/$(t g_no)" ;;
+        *)   hint="$(t g_no)/$(t g_yes)" ;;
+    esac
+    printf '%s [%s]: ' "$(t "$prompt")" "$hint" >&2
     IFS= read -r ans || return 1
-    [ -z "$ans" ] && ans="$def"
-    case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+    [ -n "$ans" ] || ans="$def"
+    case "$ans" in
+        y|Y|yes|YES|Yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+ui_pause() {
+    printf '\n%s... ' "$(t g_press_enter)"
+    IFS= read -r _ || true
+}
+
+# Backwards-compatible wrappers -------------------------------------------------
+confirm() {
+    ui_confirm "$@"
 }
 
 pause() {
-    printf '\n%s' '按回车返回菜单 / Press Enter to return... '
-    IFS= read -r _ || true
+    ui_pause
 }
 
 run_script() {
     script="$1"
     shift
     [ -x "$script" ] || {
-        err "管理脚本不存在: $script"
+        err "$(t script_missing): $script"
         return 1
     }
     "$script" "$@"
@@ -58,7 +609,7 @@ run_app() {
     cmd="$1"
     shift
     if [ ! -x "$APP_BIN" ]; then
-        err "未找到程序: $APP_BIN"
+        err "$(t app_missing): $APP_BIN"
         return 1
     fi
     mkdir -p "$DATA_DIR"
@@ -80,7 +631,7 @@ service_action() {
     case "$(init_system)" in
         systemd) systemctl "$action" 3m-ui ;;
         openrc) rc-service 3m-ui "$action" ;;
-        *) err '未检测到 systemd 或 OpenRC。'; return 1 ;;
+        *) err "$(t svc_noinit)"; return 1 ;;
     esac
 }
 
@@ -96,16 +647,16 @@ service_enable() {
     case "$(init_system)" in
         systemd)
             if systemctl enable 3m-ui; then
-                say '已设置开机自启 / Enabled on boot.'
+                say "$(t svc_enabled)."
             else
-                err 'enable 失败（服务单元是否已安装？）'
+                err "$(t svc_enable_fail)"
                 return 1
             fi
             ;;
         openrc)
-            rc-update add 3m-ui default && say '已设置开机自启 / Enabled on boot.'
+            rc-update add 3m-ui default && say "$(t svc_enabled)."
             ;;
-        *) err '不支持的 init'; return 1 ;;
+        *) err "$(t svc_init_bad)"; return 1 ;;
     esac
 }
 
@@ -113,16 +664,16 @@ service_disable() {
     case "$(init_system)" in
         systemd)
             if systemctl disable 3m-ui; then
-                say '已取消开机自启 / Disabled on boot.'
+                say "$(t svc_disabled)."
             else
-                err 'disable 失败'
+                err "$(t svc_disable_fail)"
                 return 1
             fi
             ;;
         openrc)
-            rc-update del 3m-ui default && say '已取消开机自启 / Disabled on boot.'
+            rc-update del 3m-ui default && say "$(t svc_disabled)."
             ;;
-        *) err '不支持的 init'; return 1 ;;
+        *) err "$(t svc_init_bad)"; return 1 ;;
     esac
 }
 
@@ -166,7 +717,7 @@ yaml_set() {
     key="$1"
     val="$2"
     if [ ! -f "$CONFIG_FILE" ]; then
-        err "配置不存在: $CONFIG_FILE"
+        err "$(t cfg_missing): $CONFIG_FILE"
         return 1
     fi
     tmp=$(mktemp "${CONFIG_FILE}.tmp.XXXXXX") || return 1
@@ -209,7 +760,7 @@ yaml_set() {
         ' "$CONFIG_FILE" > "$tmp"
         then
             rm -f "$tmp"
-            err "配置中未找到 server: 段，无法写入 ${key}（未做任何修改）"
+            err "$(t cfg_no_server) (${key})"
             return 1
         fi
     fi
@@ -223,35 +774,35 @@ status() {
     case "$(init_system)" in
         systemd) systemctl --no-pager --full status 3m-ui || true ;;
         openrc) rc-service 3m-ui status || true ;;
-        *) say 'init: unsupported' ;;
+        *) say "$(t status_init_bad)" ;;
     esac
     printf '\n'
     if service_is_active; then
-        say '状态: 运行中 / running'
+        say "$(t status_running)"
     else
-        say '状态: 未运行 / stopped'
+        say "$(t status_stopped)"
     fi
     case "$(init_system)" in
         systemd)
             if systemctl is-enabled --quiet 3m-ui 2>/dev/null; then
-                say '开机自启: 是 / enabled'
+                say "$(t status_boot_yes)"
             else
-                say '开机自启: 否 / disabled'
+                say "$(t status_boot_no)"
             fi
             ;;
         openrc)
             if rc-update show default 2>/dev/null | grep -qw 3m-ui; then
-                say '开机自启: 是 / enabled'
+                say "$(t status_boot_yes)"
             else
-                say '开机自启: 否 / disabled'
+                say "$(t status_boot_no)"
             fi
             ;;
     esac
     if [ -x "$APP_BIN" ]; then
-        say "应用程序: $APP_BIN"
+        say "$(t status_app): $APP_BIN"
         "$APP_BIN" --version 2>/dev/null || true
     else
-        say '应用程序二进制不存在。'
+        say "$(t status_noapp)"
     fi
 }
 
@@ -259,7 +810,6 @@ logs() {
     case "$(init_system)" in
         systemd)
             if [ "${1:-}" = "-f" ] || [ "${1:-}" = "follow" ]; then
-                # Ctrl+C must not abort the interactive menu under set -e
                 journalctl -u 3m-ui -f --no-pager || true
             else
                 journalctl -u 3m-ui -n 100 --no-pager || true
@@ -273,10 +823,10 @@ logs() {
                     tail -n 100 /var/log/3m-ui/3m-ui.log || true
                 fi
             else
-                say '未找到日志文件 /var/log/3m-ui/3m-ui.log'
+                say "$(t logs_nofile)"
             fi
             ;;
-        *) say '未找到可用的日志系统。' ;;
+        *) say "$(t logs_nosys)" ;;
     esac
 }
 
@@ -306,7 +856,7 @@ version() {
         printed=1
     fi
     if [ "$printed" -eq 0 ]; then
-        err '3m-ui 未安装或无法读取版本信息。'
+        err "$(t ver_notfound)"
         return 1
     fi
 }
@@ -322,9 +872,9 @@ show_access() {
     subp=$(yaml_get 'sub_path:' 2>/dev/null || true)
     subport=$(yaml_get 'sub_port:' 2>/dev/null || true)
 
-    say "配置文件: $CONFIG_FILE"
-    say "面板端口 / port: $port"
-    [ -n "$listen" ] && say "监听 / listen: $listen"
+    say "$(t access_cfg): $CONFIG_FILE"
+    say "$(t access_port): $port"
+    [ -n "$listen" ] && say "$(t access_listen): $listen"
     [ -n "$pub" ] && [ "$pub" != "null" ] && say "public_url: $pub"
     [ -n "$web" ] && say "web_path: $web"
     [ -n "$subp" ] && say "sub_path: $subp"
@@ -338,91 +888,84 @@ show_access() {
     esac
 
     if [ -n "$pub" ] && [ "$pub" != "null" ]; then
-        # strip trailing slash for display
         base=$(printf '%s' "$pub" | sed 's|/*$||')
-        say "面板访问 / Panel URI: ${base}${path_suffix}/"
+        say "$(t access_uri): ${base}${path_suffix}/"
     else
-        say "面板访问示例 (请换成公网 IP/域名):"
+        say "$(t access_example):"
         say "  http://<IP>:${port}${path_suffix}/"
-        say "  https://<域名>/   (若已启用面板 SSL 且监听 443)"
+        say "  https://<domain>/   (if panel SSL is enabled and listening on 443)"
     fi
-    say '面板启用 HTTPS 后，请使用面板中配置的域名和 HTTPS 端口。'
+    say "$(t access_https)"
     if run_app healthcheck >/dev/null 2>&1; then
-        say '面板健康检查通过 / healthcheck OK'
+        say "$(t access_ok)"
     else
-        say '面板健康检查未通过或未就绪 (可稍后重试)'
+        say "$(t access_bad)"
     fi
-    say '管理命令: 3m-ui'
-    say '初始密码在首次安装时随机生成；遗失可用菜单「重置管理员密码」。'
+    say "$(t access_cmd)"
+    say "$(t access_pwdhint)"
 }
 
 change_port() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        err "配置文件不存在: $CONFIG_FILE"
+        err "$(t cfg_missing): $CONFIG_FILE"
         return 1
     fi
     current=$(yaml_get 'port:' 2>/dev/null || echo "8080")
-    printf '当前面板端口: %s\n' "$current"
-    printf '输入新端口 (1-65535, 回车取消): '
-    IFS= read -r new_port || return 0
-    [ -z "$new_port" ] && return 0
+    printf '%s: %s\n' "$(t access_port)" "$current"
+    new_port=$(ui_input i_port "$current")
+    [ -n "$new_port" ] || return 0
     case "$new_port" in
-        ''|*[!0-9]*) err '无效端口。'; return 1 ;;
+        ''|*[!0-9]*) err "$(t port_bad)"; return 1 ;;
     esac
     [ "$new_port" -ge 1 ] && [ "$new_port" -le 65535 ] || {
-        err '端口必须在 1-65535 范围内。'
+        err "$(t port_range)"
         return 1
     }
-    [ "$new_port" = "$current" ] && { say '端口未变更。'; return 0; }
+    [ "$new_port" = "$current" ] && { say "$(t port_unchanged)"; return 0; }
     yaml_set 'port:' "$new_port"
-    say "端口已更改: $current → $new_port"
-    say '正在重启 3m-ui...'
+    say "$(t port_changed): $current → $new_port"
+    say "$(t port_restarting)"
     service_action restart
     sleep 1
     if service_is_active; then
-        say "✓ 已重启。配置端口: $new_port"
+        say "✓ $(t port_ok): $new_port"
     else
-        err '✗ 启动失败，请检查: 3m-ui logs'
+        err "✗ $(t port_fail)"
     fi
 }
 
 set_public_url() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        err "配置不存在: $CONFIG_FILE"
+        err "$(t cfg_missing): $CONFIG_FILE"
         return 1
     fi
     cur=$(yaml_get 'public_url:' 2>/dev/null || true)
-    printf '当前 public_url: %s\n' "${cur:-<empty>}"
-    printf '输入新的 public_url (例如 https://example.com ，回车取消): '
-    IFS= read -r url || return 0
-    [ -z "$url" ] && return 0
+    printf 'public_url (%s: %s)\n' "$(t i_cur)" "${cur:-$(t i_empty)}"
+    url=$(ui_input i_puburl "${cur:-}")
+    [ -n "$url" ] || return 0
     yaml_set 'public_url:' "\"$url\""
-    say '已写入 public_url。'
-    if confirm '是否立即重启面板?' y; then
+    say "$(t pub_written)"
+    if ui_confirm restart_ask y; then
         service_action restart
         sleep 1
-        service_is_active && say '✓ 已重启' || err '✗ 重启后未运行'
+        service_is_active && say "✓ $(t restart_ok)" || err "✗ $(t restart_fail)"
     fi
 }
 
 set_panel_paths() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        err "配置不存在: $CONFIG_FILE"
+        err "$(t cfg_missing): $CONFIG_FILE"
         return 1
     fi
-    say '留空则保持现有值。 / Leave blank to keep current.'
+    say "$(t paths_hint)"
     cur_web=$(yaml_get 'web_path:' 2>/dev/null || true)
     cur_sub=$(yaml_get 'sub_path:' 2>/dev/null || true)
     cur_sp=$(yaml_get 'sub_port:' 2>/dev/null || true)
     cur_listen=$(yaml_get 'listen:' 2>/dev/null || true)
-    printf 'web_path (面板路径前缀, 现: %s): ' "${cur_web:-<empty>}"
-    IFS= read -r web || true
-    printf 'sub_path (订阅路径前缀, 现: %s): ' "${cur_sub:-<empty>}"
-    IFS= read -r sub || true
-    printf 'sub_port (0=与面板同端口, 现: %s): ' "${cur_sp:-0}"
-    IFS= read -r sp || true
-    printf 'listen (空=全部接口, 现: %s): ' "${cur_listen:-<empty>}"
-    IFS= read -r lis || true
+    web=$(ui_input i_webpath "${cur_web:-}")
+    sub=$(ui_input i_subpath "${cur_sub:-}")
+    sp=$(ui_input i_subport "${cur_sp:-0}")
+    lis=$(ui_input i_listen "${cur_listen:-}")
 
     changed=0
     if [ -n "${web:-}" ]; then
@@ -435,7 +978,7 @@ set_panel_paths() {
     fi
     if [ -n "${sp:-}" ]; then
         case "$sp" in
-            ''|*[!0-9]*) err 'sub_port 无效' ;;
+            ''|*[!0-9]*) err "$(t paths_badport)" ;;
             *) yaml_set 'sub_port:' "$sp"; changed=1 ;;
         esac
     fi
@@ -444,25 +987,25 @@ set_panel_paths() {
         changed=1
     fi
     if [ "$changed" -eq 0 ]; then
-        say '未修改。'
+        say "$(t paths_none)"
         return 0
     fi
-    say '已写入配置。'
-    if confirm '是否立即重启面板?' y; then
+    say "$(t paths_written)"
+    if ui_confirm restart_ask y; then
         service_action restart
         sleep 1
-        service_is_active && say '✓ 已重启' || err '✗ 重启后未运行'
+        service_is_active && say "✓ $(t restart_ok)" || err "✗ $(t restart_fail)"
     fi
 }
 
 reset_admin() {
     if [ ! -x "$APP_BIN" ]; then
-        err "未找到程序: $APP_BIN"
+        err "$(t app_missing): $APP_BIN"
         return 1
     fi
-    say '将随机生成新的管理员密码，并要求下次登录修改密码。'
-    if ! confirm '确认继续?' n; then
-        say '已取消。'
+    say "$(t adm_hint)"
+    if ! ui_confirm adm_confirm n; then
+        say "$(t g_cancelled)"
         return 0
     fi
     run_app reset-admin || return 1
@@ -470,52 +1013,50 @@ reset_admin() {
 
 reset_config() {
     if [ ! -x "$APP_BIN" ]; then
-        err "未找到程序: $APP_BIN"
+        err "$(t app_missing): $APP_BIN"
         return 1
     fi
-    say '=== SSH 救援 / SSH Rescue ==='
-    say '当面板配置错误（端口/SSL/监听地址）导致 Web 无法访问时，'
-    say '可通过此菜单重置为安全默认值，重启后面板以 HTTP 模式启动。'
+    say "$(t rc_head)"
+    say "$(t rc_desc1)"
+    say "$(t rc_desc2)"
     say ''
-    say '重置范围 / Scope:'
-    say '  1) 仅面板 (listen + SSL)      — 最常用，仅 Web 打不开时'
-    say '  2) 面板 + 订阅地址              — 同时清除 public_url'
-    say '  3) 面板 + 订阅 + 节点公网地址   — 全量重置（含 access_profile）'
-    say '  0) 返回 / Cancel'
-    printf '选择 [0-3]: '
-    IFS= read -r scope || return 0
+    say "$(t rc_scope):"
+    scope=$(ui_menu rc_title rc_panel rc_pub rc_all g_back) || {
+        say "$(t g_cancelled)"
+        return 0
+    }
     case "$scope" in
         1) flags='--panel --yes' ;;
         2) flags='--panel --public --yes' ;;
         3) flags='--all --yes' ;;
-        *) say '已取消。'; return 0 ;;
+        *) say "$(t g_cancelled)"; return 0 ;;
     esac
     say ''
-    say "将以 ${flags} 重置。该操作会停止面板、修改 config.yaml + DB，然后重启面板。"
-    say '不会删除用户 / 节点 / 流量记录 / 凭证。'
-    if ! confirm '确认继续?' n; then
-        say '已取消。'
+    say "$(t rc_will) ${flags} $(t rc_will2)"
+    say "$(t rc_keep)"
+    if ! ui_confirm adm_confirm n; then
+        say "$(t g_cancelled)"
         return 0
     fi
     say ''
-    say '停止 3m-ui 服务...'
+    say "$(t rc_stop)"
     service_action stop >/dev/null 2>&1 || true
     if ! run_app reset-config $flags; then
-        err '✗ reset-config 失败，请查看上方错误。面板将以旧配置重启。'
+        err "✗ $(t rc_fail)"
         service_action start || true
         return 1
     fi
     say ''
-    say '重启 3m-ui 服务...'
+    say "$(t rc_start)"
     service_action start || true
     sleep 1
     if service_is_active; then
-        say '✓ 重置完成。请用 HTTP（不是 HTTPS）访问面板:'
+        say "✓ $(t rc_done)"
         port=$(yaml_get 'port:' 2>/dev/null || echo "8080")
         say "  http://<server-ip>:${port}/"
-        say '在 Web UI 重新应用 SSL / 域名 / 订阅地址设置。'
+        say "$(t rc_sslagain)"
     else
-        err '✗ 面板启动失败，请检查: 3m-ui logs'
+        err "✗ $(t rc_startfail)"
     fi
 }
 
@@ -523,7 +1064,7 @@ reset_config() {
 
 bbr_status() {
     if [ "$(uname -s)" != Linux ]; then
-        err '仅支持 Linux。'
+        err "$(t bbr_linuxonly)"
         return 1
     fi
     sysctl net.ipv4.tcp_congestion_control 2>/dev/null || true
@@ -532,265 +1073,403 @@ bbr_status() {
 
 enable_bbr() {
     if [ "$(uname -s)" != Linux ]; then
-        err '仅支持 Linux。'
+        err "$(t bbr_linuxonly)"
         return 1
     fi
     if sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q bbr; then
-        say 'BBR 已启用。'
+        say "$(t bbr_already)"
         return 0
     fi
     modprobe tcp_bbr 2>/dev/null || true
+    # /etc/sysctl.d is missing on some minimal/container images. Without this
+    # mkdir the redirect fails and `set -e` would abort the whole menu.
+    mkdir -p /etc/sysctl.d || { err "$(t sysctl_mkdir_fail)"; return 1; }
     if [ ! -f /etc/sysctl.d/99-3m-ui-bbr.conf ]; then
-        # /etc/sysctl.d is missing on some minimal/container images. Without
-        # this mkdir the redirect fails and `set -e` aborts the whole menu.
-        mkdir -p /etc/sysctl.d || { err '无法创建 /etc/sysctl.d'; return 1; }
         printf '%s\n' 'net.core.default_qdisc=fq' > /etc/sysctl.d/99-3m-ui-bbr.conf
         printf '%s\n' 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.d/99-3m-ui-bbr.conf
     fi
     sysctl --system >/dev/null 2>&1 || sysctl -p /etc/sysctl.d/99-3m-ui-bbr.conf 2>/dev/null || true
     bbr_status
-    say '已尝试启用 BBR。'
+    say "$(t bbr_done)"
 }
 
 disable_bbr() {
     if [ "$(uname -s)" != Linux ]; then
-        err '仅支持 Linux。'
+        err "$(t bbr_linuxonly)"
         return 1
     fi
     rm -f /etc/sysctl.d/99-3m-ui-bbr.conf
     sysctl -w net.ipv4.tcp_congestion_control=cubic >/dev/null 2>&1 || true
     sysctl -w net.core.default_qdisc=fq_codel >/dev/null 2>&1 || true
     bbr_status
-    say '已尝试恢复默认拥塞控制 (cubic)。重启后仍可能被其它 sysctl 覆盖。'
+    say "$(t bbr_off)"
 }
 
 bbr_menu() {
-    say ''
-    say '  1) 状态 / Status'
-    say '  2) 启用 BBR / Enable'
-    say '  3) 关闭 BBR / Disable'
-    say '  0) 返回'
-    printf '选择: '
-    IFS= read -r c || return 0
+    c=$(ui_menu bbr_title bbr_status bbr_enable bbr_disable g_back) || return 0
     case "$c" in
         1) bbr_status ;;
         2) enable_bbr ;;
         3) disable_bbr ;;
-        0|'') ;;
-        *) say '无效选择，请重新输入。' ;;
+        *) return 0 ;;
     esac
 }
 
 # --- Geo / firewall / SSL helpers --------------------------------------------
 
 update_geo() {
-    # Geo databases influence routing. Do not download a moving "latest" asset
-    # from a root-owned management script without a release checksum.
-    say 'Geo 数据库请在面板「系统设置 → 网络与 Geo」中更新。'
-    say 'Use Settings → Network & Geo in the authenticated panel to update Geo files.'
-    say '该入口会显示每个文件的更新结果；管理脚本不会下载未校验的 latest 资产。'
+    say "$(t geo_panel)"
+    say "$(t geo_en)"
+    say "$(t geo_note)"
 }
 
 open_firewall() {
-    say '将放行 22 / 80 / 443 与面板端口，这会扩大公网暴露面。'
-    if ! confirm '确认继续?' n; then
-        say '已取消。'
+    say "$(t fw_try)"
+    say "$(t fw_confirm)"
+    if ! ui_confirm adm_confirm n; then
+        say "$(t g_cancelled)"
         return 0
     fi
-    say '尝试放行常用端口 (22, 80, 443, 面板端口)...'
     port=$(yaml_get 'port:' 2>/dev/null || echo "8080")
     if command -v ufw >/dev/null 2>&1; then
         ufw allow 22/tcp || true
         ufw allow 80/tcp || true
         ufw allow 443/tcp || true
         ufw allow "${port}/tcp" || true
-        say '已向 ufw 提交规则 (请自行 ufw enable / status)。'
+        say "$(t fw_ufw)"
     elif command -v firewall-cmd >/dev/null 2>&1; then
         firewall-cmd --permanent --add-port=80/tcp || true
         firewall-cmd --permanent --add-port=443/tcp || true
         firewall-cmd --permanent --add-port="${port}/tcp" || true
         firewall-cmd --reload || true
-        say '已尝试 firewalld 放行。'
+        say "$(t fw_firewalld)"
     else
-        say '未检测到 ufw/firewalld。请在云安全组放行 80/443 与面板端口。'
+        say "$(t fw_none)"
     fi
+}
+
+# --- acme.sh integration -----------------------------------------------------
+# acme.sh is GPL-3.0; 3m-ui is EPL-2.0. Those licences are incompatible, so
+# acme.sh is deliberately NOT vendored here. It is installed as an external
+# tool and this menu only drives it — which is also the upstream-blessed way
+# to use it. Nothing below embeds any acme.sh code.
+
+acme_bin() {
+    # print the path of an installed acme.sh, or return 1
+    if [ -n "${ACME_HOME:-}" ] && [ -x "$ACME_HOME/acme.sh" ]; then
+        printf '%s' "$ACME_HOME/acme.sh"
+        return 0
+    fi
+    for h in "$HOME/.acme.sh" /root/.acme.sh /usr/local/share/acme.sh; do
+        if [ -x "$h/acme.sh" ]; then
+            printf '%s' "$h/acme.sh"
+            return 0
+        fi
+    done
+    return 1
+}
+
+acme_require() {
+    # ensure acme.sh is available, offering to install it
+    if acme_bin >/dev/null 2>&1; then
+        return 0
+    fi
+    say "$(t acme_missing)"
+    if ! ui_confirm acme_install_ask n; then
+        say "$(t g_cancelled)"
+        return 1
+    fi
+    acme_install "$(ui_input i_email '')" || return 1
+    acme_bin >/dev/null 2>&1 || { err "$(t acme_install_fail)"; return 1; }
+}
+
+acme_install() {
+    # acme_install [email]
+    say "$(t acme_installing)"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL https://get.acme.sh | sh -s email="${1:-}" || {
+            err "$(t acme_install_fail)"
+            return 1
+        }
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO - https://get.acme.sh | sh -s email="${1:-}" || {
+            err "$(t acme_install_fail)"
+            return 1
+        }
+    else
+        err "$(t acme_need_curl)"
+        return 1
+    fi
+    if acme_bin >/dev/null 2>&1; then
+        say "✓ $(t acme_installed): $(acme_bin)"
+    else
+        err "$(t acme_install_fail)"
+        return 1
+    fi
+}
+
+acme_issue_standalone() {
+    # acme_issue_standalone DOMAIN [EMAIL]  — needs port 80 free
+    acme_require || return 1
+    dom=$1
+    em=${2:-}
+    say "$(t ssl_stop_hint)"
+    if ! ui_confirm acme_standalone_ask n; then
+        say "$(t g_cancelled)"
+        return 0
+    fi
+    ash=$(acme_bin)
+    if [ -n "$em" ]; then
+        "$ash" --issue -d "$dom" --standalone --email "$em"
+    else
+        "$ash" --issue -d "$dom" --standalone --register-unsafely-without-email
+    fi
+}
+
+acme_issue_dns() {
+    # acme_issue_dns DOMAIN — DNS-01, never touches port 80
+    acme_require || return 1
+    dom=$1
+    say "$(t acme_dns_hint)"
+    dapi=$(ui_input acme_dns_api 'dns_cf')
+    [ -n "$dapi" ] || { say "$(t g_cancelled)"; return 0; }
+    "$(acme_bin)" --issue -d "$dom" --dns "$dapi"
+}
+
+acme_deploy() {
+    # acme_deploy DOMAIN — copy the issued cert where the panel can use it
+    acme_require || return 1
+    dom=$1
+    mkdir -p "$CERT_DIR" || { err "$(t cert_mkdir_fail)"; return 1; }
+    "$(acme_bin)" --install-cert -d "$dom" \
+        --key-file "$CERT_DIR/${dom}.key" \
+        --fullchain-file "$CERT_DIR/${dom}.crt" \
+        --reloadcmd "systemctl restart 3m-ui" || return 1
+    say "✓ $(t cert_deployed)"
+    say "  $(t ssl_key): $CERT_DIR/${dom}.key"
+    say "  $(t ssl_cert): $CERT_DIR/${dom}.crt"
+}
+
+acme_list() {
+    acme_require || return 1
+    "$(acme_bin)" --list
+}
+
+acme_renew() {
+    # acme_renew DOMAIN
+    acme_require || return 1
+    "$(acme_bin)" --renew -d "$1"
 }
 
 ssl_cert_menu() {
     say ''
-    say '面板 HTTPS 推荐在「系统设置 → SSL」使用内置 ACME。'
-    say '以下为可选：用外部工具申请 PEM，供节点或反代使用。'
+    say "$(t ssl_head1)"
+    say "$(t ssl_head2)"
     say ''
-    say '  1) 打印 certbot 命令 (standalone)'
-    say '  2) 打印 acme.sh 命令 (standalone)'
-    say '  3) 打印 Cloudflare DNS (acme.sh) 示例'
-    say '  0) 返回'
-    printf '选择: '
-    IFS= read -r c || return 0
-    # 0 / 空输入先返回主菜单，不要继续索要域名。
+    c=$(ui_menu ssl_title ssl_install_acme ssl_issue_standalone ssl_issue_dns \
+        ssl_deploy ssl_list ssl_renew ssl_print g_back) || return 0
+    case "$c" in
+        1) acme_install "$(ui_input i_email '')" ;;
+        2|3|4|6)
+            dom=$(ui_input i_domain '')
+            [ -n "$dom" ] || { say "$(t g_cancelled)"; return 0; }
+            case "$c" in
+                2) em=$(ui_input i_email ''); acme_issue_standalone "$dom" "$em" ;;
+                3) acme_issue_dns "$dom" ;;
+                4) acme_deploy "$dom" ;;
+                6) acme_renew "$dom" ;;
+            esac
+            ;;
+        5) acme_list ;;
+        7) ssl_print_commands ;;
+        *) return 0 ;;
+    esac
+}
+
+# The pre-existing behaviour: print ready-to-run commands instead of executing
+# anything (kept for operators who prefer to run them by hand).
+ssl_print_commands() {
+    c=$(ui_menu ssl_title ssl_certbot ssl_acme ssl_cf g_back) || return 0
     case "$c" in
         1|2|3) ;;
-        0|'') return 0 ;;
-        *) say '无效选择，请重新输入。'; return 0 ;;
+        *) return 0 ;;
     esac
-    printf '域名 (例 dzx.qzz.io): '
-    IFS= read -r dom || return 0
-    if [ -z "$dom" ]; then return 0; fi
-    printf '邮箱 (可空): '
-    IFS= read -r em || true
+    dom=$(ui_input i_domain '')
+    [ -n "$dom" ] || return 0
+    em=$(ui_input i_email '')
+    say "$(t ssl_disclaimer)"
     case "$c" in
         1)
             say ''
-            say '# 申请前请确保 80 未被占用（可临时: systemctl stop 3m-ui）'
+            say "$(t ssl_stop_hint)"
             if [ -n "$em" ]; then
                 say "certbot certonly --standalone -d $dom --email $em --agree-tos --non-interactive"
             else
                 say "certbot certonly --standalone -d $dom --register-unsafely-without-email --agree-tos --non-interactive"
             fi
-            say "# 证书: /etc/letsencrypt/live/$dom/fullchain.pem"
-            say "# 私钥: /etc/letsencrypt/live/$dom/privkey.pem"
+            say "$(t ssl_cert): /etc/letsencrypt/live/$dom/fullchain.pem"
+            say "$(t ssl_key): /etc/letsencrypt/live/$dom/privkey.pem"
             ;;
         2)
             say ''
-            say '# 以下仅为示例命令，请自行确认来源后再执行'
             say 'curl https://get.acme.sh | sh'
             say "~/.acme.sh/acme.sh --set-default-ca --server letsencrypt"
             say "~/.acme.sh/acme.sh --issue -d $dom --standalone"
             say "~/.acme.sh/acme.sh --install-cert -d $dom \\"
-            say "  --key-file /etc/3m-ui/certs/${dom}.key \\"
-            say "  --fullchain-file /etc/3m-ui/certs/${dom}.crt \\"
-            say "  --reloadcmd \"systemctl restart 3m-ui\""
+            say "  --key-file $CERT_DIR/${dom}.key \\"
+            say "  --fullchain-file $CERT_DIR/${dom}.crt \\"
+            say '  --reloadcmd "systemctl restart 3m-ui"'
             ;;
         3)
             say ''
             say 'export CF_Token="your_api_token"'
             say "~/.acme.sh/acme.sh --issue -d $dom --dns dns_cf"
-            say "# 不占用 80，适合面板已占用 ACME 端口时给节点另签证书"
+            say "$(t ssl_cf_note)"
             ;;
-        *) ;;
     esac
 }
+
 
 # --- update management script itself -----------------------------------------
 
 update_self() {
-    # Lifecycle scripts and the panel binary are a single release unit. Routing
-    # this action through the installer keeps the checksum, provenance option,
-    # rollback snapshot, and health check that protect normal updates.
-    say '管理脚本会随已验证的面板版本一起更新。'
-    if ! confirm '通过已验证的发布更新 3m-ui（包括管理脚本）？' n; then
-        say '已取消。'
+    say "$(t self_hint)"
+    if ! ui_confirm self_confirm n; then
+        say "$(t g_cancelled)"
         return 0
     fi
     run_script "$UPDATER" || return 1
 }
 
 update_to_version() {
-    printf '输入版本号 (如 v1.1.1，回车取消): '
-    IFS= read -r ver || return 0
-    [ -z "$ver" ] && return 0
+    ver=$(ui_input i_version '')
+    [ -n "$ver" ] || return 0
     case "$ver" in
         v*) ;;
         *) ver="v$ver" ;;
     esac
-    say "将更新到 $ver ..."
+    say "$(t upd_to) $ver ..."
     run_script "$UPDATER" "$ver" || return 1
+}
+
+# --- language switching -------------------------------------------------------
+
+lang_cmd() {
+    arg="${1:-}"
+    case "$arg" in
+        '')
+            say "$(t lang_current): $LANG_CODE"
+            say "$(t lang_usage)"
+            return 0
+            ;;
+        zh|en)
+            menu_conf_set lang "$arg"
+            LANG_CODE="$arg"
+            say "$(t lang_set): $arg"
+            say "$(t lang_saved): $MENU_CONF"
+            return 0
+            ;;
+        auto)
+            :
+            ;;
+        *)
+            err "$(t lang_usage)"
+            return 2
+            ;;
+    esac
+    # auto: drop the persisted value and re-detect from the environment
+    if [ -f "$MENU_CONF" ]; then
+        tmp="${MENU_CONF}.tmp.$$"
+        awk '$0 !~ /^[[:space:]]*lang[[:space:]]*=/' "$MENU_CONF" > "$tmp" && mv "$tmp" "$MENU_CONF"
+    fi
+    LANG_CODE=$(detect_lang)
+    case "$LANG_CODE" in
+        zh|en) ;;
+        *) LANG_CODE=zh ;;
+    esac
+    say "$(t lang_current): $LANG_CODE (auto)"
+}
+
+lang_menu() {
+    c=$(ui_menu lang_title lang_zh lang_en g_back) || return 0
+    case "$c" in
+        1) menu_conf_set lang zh; LANG_CODE=zh ;;
+        2) menu_conf_set lang en; LANG_CODE=en ;;
+        *) return 0 ;;
+    esac
+    say "$(t lang_set): $LANG_CODE"
 }
 
 # --- menu --------------------------------------------------------------------
 
 menu() {
     while :; do
-        printf '\n'
-        printf '%s\n' '╭──────────────────────────────────────────────╮'
-        printf '%s\n' '│     3m-ui 管理控制台 / Management Console     │'
-        printf '%s\n' '│        Mihomo Core Management UI             │'
-        printf '%s\n' '╰──────────────────────────────────────────────╯'
-        printf '\n'
-        printf '%s\n' '  1. 安装/修复 | Install / Repair'
-        printf '%s\n' '  2. 更新到最新 | Update latest'
-        printf '%s\n' '  3. 更新到指定版本 | Update to version'
-        printf '%s\n' '  4. 运行状态 | Status'
-        printf '%s\n' '  5. 启动 | Start'
-        printf '%s\n' '  6. 重启 | Restart'
-        printf '%s\n' '  7. 停止 | Stop'
-        printf '%s\n' '  8. 开机自启 开/关 | Enable/Disable'
-        printf '%s\n' '  9. 日志 | Logs'
-        printf '%s\n' ' 10. 版本 | Version'
-        printf '%s\n' ' 11. 访问信息 / URI | Access info'
-        printf '%s\n' ' 12. 修改面板端口 | Change port'
-        printf '%s\n' ' 13. 设置 public_url | Public URL'
-        printf '%s\n' ' 14. 路径/订阅端口 | web_path sub_path sub_port'
-        printf '%s\n' ' 15. 重置管理员密码 | Reset admin'
-        printf '%s\n' ' 16. SSH 救援重置面板配置 | Reset-config (SSH rescue)'
-        printf '%s\n' ' 17. 健康检查 | Healthcheck'
-        printf '%s\n' ' 18. BBR | BBR menu'
-        printf '%s\n' ' 19. 更新 Geo | Update Geo'
-        printf '%s\n' ' 20. 防火墙放行提示 | Firewall'
-        printf '%s\n' ' 21. SSL 证书助手 | SSL cert helper'
-        printf '%s\n' ' 22. 备份 | Backup'
-        printf '%s\n' ' 23. 更新 3m-ui（含管理脚本） | Update 3m-ui (incl. scripts)'
-        printf '%s\n' '  a. 卸载 | Uninstall'
-        printf '%s\n' '  0. 退出 | Exit'
-        printf '\n请选择 / Select: '
-        IFS= read -r choice || exit 0
+        choice=$(ui_menu m_title1 \
+            m_install m_update m_update_ver m_status m_start m_restart m_stop \
+            m_autostart m_logs m_version m_access m_port m_puburl m_paths \
+            m_resetadm m_resetconf m_health m_bbr m_geo m_fw m_ssl m_backup \
+            m_selfupd m_lang m_uninst g_exit) || {
+            # q / ESC / EOF -> leave the menu
+            exit 0
+        }
         case "$choice" in
-            1) run_script "$INSTALLER" || true; pause ;;
-            2) run_script "$UPDATER" || true; pause ;;
-            3) update_to_version || true; pause ;;
-            4) status || true; pause ;;
-            5) service_action start || true; pause ;;
-            6) service_action restart || true; pause ;;
-            7) service_action stop || true; pause ;;
+            1) run_script "$INSTALLER" || true; ui_pause ;;
+            2) run_script "$UPDATER" || true; ui_pause ;;
+            3) update_to_version || true; ui_pause ;;
+            4) status || true; ui_pause ;;
+            5) service_action start || true; ui_pause ;;
+            6) service_action restart || true; ui_pause ;;
+            7) service_action stop || true; ui_pause ;;
             8)
-                printf 'e=启用 enable / d=禁用 disable: '
-                ed=''
-                IFS= read -r ed || true
+                ed=$(ui_menu ed_title ed_enable ed_disable g_back) || ed=''
                 case "$ed" in
-                    e|E) service_enable || true ;;
-                    d|D) service_disable || true ;;
-                    '') say '未变更。' ;;
-                    *) say "无效输入: $ed（请输入 e 或 d）" ;;
+                    1|e|E) service_enable || true ;;
+                    2|d|D) service_disable || true ;;
+                    3|'') say "$(t ed_unchanged)" ;;
+                    *) say "$(t ed_invalid): $ed" ;;
                 esac
-                pause
+                ui_pause
                 ;;
             9)
-                printf '跟随输出? [y/N]: '
-                IFS= read -r fl || true
-                case "$fl" in y|Y) logs -f || true ;; *) logs || true; pause ;; esac
+                if ui_confirm log_follow n; then
+                    logs -f || true
+                else
+                    logs || true
+                    ui_pause
+                fi
                 ;;
-            10) version || true; pause ;;
-            11) show_access || true; pause ;;
-            12) change_port || true; pause ;;
-            13) set_public_url || true; pause ;;
-            14) set_panel_paths || true; pause ;;
-            15) reset_admin || true; pause ;;
-            16) reset_config || true; pause ;;
+            10) version || true; ui_pause ;;
+            11) show_access || true; ui_pause ;;
+            12) change_port || true; ui_pause ;;
+            13) set_public_url || true; ui_pause ;;
+            14) set_panel_paths || true; ui_pause ;;
+            15) reset_admin || true; ui_pause ;;
+            16) reset_config || true; ui_pause ;;
             17)
                 # The binary's healthcheck exits 0 silently on success, so a
                 # bare `run_app healthcheck` made this item look inert.
                 if run_app healthcheck; then
-                    say '✓ 健康检查通过 / healthcheck OK'
+                    say "$(t health_ok)"
                 else
-                    say '✗ 健康检查未通过 / healthcheck failed'
-                    say '  详情: 3m-ui logs'
+                    say "$(t health_fail)"
+                    say "  $(t health_detail): 3m-ui logs"
                 fi
-                pause ;;
-            18) bbr_menu || true; pause ;;
-            19) update_geo || true; pause ;;
-            20) open_firewall || true; pause ;;
-            21) ssl_cert_menu || true; pause ;;
-            22) run_script "$INSTALLER" --backup || true; pause ;;
-            23) update_self || true; pause ;;
-            a|A) run_script "$UNINSTALLER" || true; pause ;;
-            0) exit 0 ;;
-            *) say '无效选择，请重新输入。' ;;
+                ui_pause ;;
+            18) bbr_menu || true; ui_pause ;;
+            19) update_geo || true; ui_pause ;;
+            20) open_firewall || true; ui_pause ;;
+            21) ssl_cert_menu || true; ui_pause ;;
+            22) run_script "$INSTALLER" --backup || true; ui_pause ;;
+            23) update_self || true; ui_pause ;;
+            24) lang_menu || true; ui_pause ;;
+            25|a|A) run_script "$UNINSTALLER" || true; ui_pause ;;
+            26|0) exit 0 ;;
+            *) say "$(t g_invalid)" ;;
         esac
     done
 }
 
 # --- main --------------------------------------------------------------------
-
 
 channel_cmd() {
     ch_file="$BASE/CHANNEL"
@@ -849,15 +1528,13 @@ main() {
         logs) shift; logs "$@" ;;
         version) version ;;
         channel) shift; channel_cmd "$@" ;;
+        lang) shift; lang_cmd "$@" ;;
         config) shift; run_script "$MANAGER" config "$@" ;;
         backup) shift; run_script "$INSTALLER" --backup "$@" ;;
         restore) shift; run_script "$INSTALLER" --restore "$@" ;;
         init|reset-admin|healthcheck) run_app "$cmd" ;;
         reset-config)
-            # reset-config needs the service stopped before the Go binary
-            # runs (it writes config.yaml + DB rows the running panel caches).
-            # --help / -h short-circuits — no stop/restart needed.
-            shift # drop 'reset-config' so $@ holds the flags
+            shift
             help_only=0
             for a in "$@"; do
                 case "$a" in --help|-h) help_only=1 ;; esac
@@ -865,14 +1542,14 @@ main() {
             if [ "$help_only" = 1 ]; then
                 run_app reset-config "$@"
             else
-                say '停止 3m-ui 服务...'
+                say "$(t rc_stop)"
                 service_action stop >/dev/null 2>&1 || true
                 if ! run_app reset-config "$@"; then
-                    err '✗ reset-config 失败，请查看上方错误。'
+                    err "✗ $(t rc_fail)"
                     service_action start || true
                     exit 1
                 fi
-                say '重启 3m-ui 服务...'
+                say "$(t rc_start)"
                 service_action start || true
             fi
             ;;
@@ -890,23 +1567,23 @@ main() {
             ;;
         menu) menu ;;
         help|-h|--help)
-            printf '%s\n' '用法: 3m-ui <命令> [参数]'
+            printf '%s\n' '用法: 3m-ui <命令> [参数] / Usage: 3m-ui <command> [args]'
             printf '%s\n' ''
-            printf '%s\n' '服务: status | start | restart | stop | enable | disable | logs | version | channel'
-            printf '%s\n' '配置: config show | config port <端口>'
-            printf '%s\n' '安装: update [vX.Y.Z|pre] | channel stable|pre [--update] | install | uninstall [--purge]'
-            printf '%s\n' '数据: backup | restore <snapshot.tar.gz> | reset-admin | reset-config | healthcheck'
-            printf '%s\n' '其他: menu | help'
+            printf '%s\n' '服务 Service: status | start | restart | stop | enable | disable | logs | version | channel'
+            printf '%s\n' '配置 Config : config show | config port <port>'
+            printf '%s\n' '安装 Install: update [vX.Y.Z|pre] | channel stable|pre [--update] | install | uninstall [--purge]'
+            printf '%s\n' '数据 Data   : backup | restore <snapshot.tar.gz> | reset-admin | reset-config | healthcheck'
+            printf '%s\n' '界面 UI     : lang [zh|en|auto] | menu'
             printf '%s\n' ''
             printf '%s\n' 'SSH 救援 / SSH rescue:'
             printf '%s\n' '  3m-ui reset-config --panel --yes   # 重置 listen/SSL，重启后 HTTP 访问'
             printf '%s\n' '  3m-ui reset-config --all --yes      # 全量重置（含 public_url + access_profile）'
             printf '%s\n' ''
-            printf '%s\n' '不带参数时进入交互式菜单。'
+            printf '%s\n' '不带参数时进入交互式菜单。 / With no args, the interactive menu starts.'
             ;;
         '') menu ;;
         *)
-            err "未知命令: $cmd"
+            err "未知命令 / Unknown command: $cmd"
             err '运行: 3m-ui help'
             exit 2
             ;;
