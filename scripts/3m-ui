@@ -319,6 +319,9 @@ _t_zh() {
         acme_no_cron)      printf '%s' '未检测到 crontab，acme.sh 需要它来自动续期证书。' ;;
         acme_force_ask)    printf '%s' '是否用 --force 继续安装？（证书将无法自动续期）' ;;
         acme_no_cron_warn) printf '%s' '注意: 未安装定时任务，证书不会自动续期；请自行添加 cron 每天调用 acme.sh --cron' ;;
+        acme_no_cert)      printf '%s' '未找到该域名的证书，请先申请（菜单 2 或 3）' ;;
+        cert_key_label)    printf '%s' '私钥' ;;
+        cert_crt_label)    printf '%s' '证书' ;;
         *) printf '%s' "$1" ;;
     esac
 }
@@ -522,6 +525,9 @@ _t_en() {
         acme_no_cron)      printf '%s' 'No crontab found; acme.sh needs it to renew certificates automatically.' ;;
         acme_force_ask)    printf '%s' 'Install with --force anyway? (certificates will not renew automatically)' ;;
         acme_no_cron_warn) printf '%s' 'Warning: no cron job was installed, so certificates will NOT renew automatically. Add your own cron to run acme.sh --cron daily.' ;;
+        acme_no_cert)      printf '%s' 'No certificate found for this domain; issue one first (menu 2 or 3)' ;;
+        cert_key_label)    printf '%s' 'Private key' ;;
+        cert_crt_label)    printf '%s' 'Certificate' ;;
         *) printf '%s' "$1" ;;
     esac
 }
@@ -1384,18 +1390,43 @@ acme_issue_dns() {
     "$(acme_bin)" --issue -d "$dom" --dns "$dapi"
 }
 
+# How to reload the panel once a new certificate is in place. The reload cmd
+# must match the init system: a hardcoded systemctl is a no-op under OpenRC.
+_acme_reload_cmd() {
+    case "$(init_system)" in
+        systemd) printf '%s' 'systemctl restart 3m-ui' ;;
+        openrc)  printf '%s' 'rc-service 3m-ui restart' ;;
+        *)       printf '' ;;
+    esac
+}
+
 acme_deploy() {
     # acme_deploy DOMAIN — copy the issued cert where the panel can use it
     acme_require || return 1
     dom=$1
+    ash=$(acme_bin)
+    # Check locally first so the operator gets a readable, localised message
+    # instead of acme.sh's English "is not a cert name".
+    home=$(dirname "$ash")
+    if [ ! -d "$home/$dom" ]; then
+        err "$(t acme_no_cert): $dom"
+        return 1
+    fi
     mkdir -p "$CERT_DIR" || { err "$(t cert_mkdir_fail)"; return 1; }
-    "$(acme_bin)" --install-cert -d "$dom" \
-        --key-file "$CERT_DIR/${dom}.key" \
-        --fullchain-file "$CERT_DIR/${dom}.crt" \
-        --reloadcmd "systemctl restart 3m-ui" || return 1
+    reload=$(_acme_reload_cmd)
+    if [ -n "$reload" ]; then
+        "$ash" --install-cert -d "$dom" \
+            --key-file "$CERT_DIR/${dom}.key" \
+            --fullchain-file "$CERT_DIR/${dom}.crt" \
+            --reloadcmd "$reload" || return 1
+    else
+        "$ash" --install-cert -d "$dom" \
+            --key-file "$CERT_DIR/${dom}.key" \
+            --fullchain-file "$CERT_DIR/${dom}.crt" || return 1
+    fi
     say "✓ $(t cert_deployed)"
-    say "  $(t ssl_key): $CERT_DIR/${dom}.key"
-    say "  $(t ssl_cert): $CERT_DIR/${dom}.crt"
+    say "  $(t cert_key_label): $CERT_DIR/${dom}.key"
+    say "  $(t cert_crt_label): $CERT_DIR/${dom}.crt"
 }
 
 acme_list() {
