@@ -309,6 +309,16 @@ _t_zh() {
         acme_dns_api)       printf '%s' 'DNS API (如 dns_cf / dns_ali / dns_dp)' ;;
         cert_mkdir_fail)    printf '%s' '无法创建证书目录' ;;
         cert_deployed)      printf '%s' '证书已安装' ;;
+        acme_install_hint)  printf '%s' '参考: https://github.com/acmesh-official/acme.sh/wiki/How-to-install' ;;
+        acme_cn_ask)       printf '%s' '是否改用 Gitee 镜像安装（中国大陆推荐）?' ;;
+        acme_need_git)     printf '%s' 'Gitee 镜像安装需要 git' ;;
+        acme_upgrading)    printf '%s' '正在更新 acme.sh ...' ;;
+        acme_src_title)    printf '%s' '选择安装源' ;;
+        acme_src_official) printf '%s' '官方 get.acme.sh' ;;
+        acme_src_gitee)    printf '%s' 'Gitee 镜像（中国大陆推荐）' ;;
+        acme_no_cron)      printf '%s' '未检测到 crontab，acme.sh 需要它来自动续期证书。' ;;
+        acme_force_ask)    printf '%s' '是否用 --force 继续安装？（证书将无法自动续期）' ;;
+        acme_no_cron_warn) printf '%s' '注意: 未安装定时任务，证书不会自动续期；请自行添加 cron 每天调用 acme.sh --cron' ;;
         *) printf '%s' "$1" ;;
     esac
 }
@@ -502,6 +512,16 @@ _t_en() {
         acme_dns_api)       printf '%s' 'DNS API (e.g. dns_cf / dns_ali / dns_dp)' ;;
         cert_mkdir_fail)    printf '%s' 'Cannot create the certificate directory' ;;
         cert_deployed)      printf '%s' 'Certificate installed' ;;
+        acme_install_hint)  printf '%s' 'See: https://github.com/acmesh-official/acme.sh/wiki/How-to-install' ;;
+        acme_cn_ask)       printf '%s' 'Install from the Gitee mirror instead (recommended in mainland China)?' ;;
+        acme_need_git)     printf '%s' 'The Gitee mirror install needs git' ;;
+        acme_upgrading)    printf '%s' 'Updating acme.sh ...' ;;
+        acme_src_title)    printf '%s' 'Choose install source' ;;
+        acme_src_official) printf '%s' 'Official get.acme.sh' ;;
+        acme_src_gitee)    printf '%s' 'Gitee mirror (recommended in mainland China)' ;;
+        acme_no_cron)      printf '%s' 'No crontab found; acme.sh needs it to renew certificates automatically.' ;;
+        acme_force_ask)    printf '%s' 'Install with --force anyway? (certificates will not renew automatically)' ;;
+        acme_no_cron_warn) printf '%s' 'Warning: no cron job was installed, so certificates will NOT renew automatically. Add your own cron to run acme.sh --cron daily.' ;;
         *) printf '%s' "$1" ;;
     esac
 }
@@ -532,6 +552,11 @@ _ui_menu_classic() {
     printf '%s\n' "$(_box_line "$(t m_title2)")" >&2
     printf '%s\n' '╰──────────────────────────────────────────────╯' >&2
     printf '\n' >&2
+    # Show which sub-menu we are in. The main menu passes m_title1, which the
+    # box already displays, so it is not repeated.
+    if [ "$title" != m_title1 ]; then
+        printf '%s\n\n' "$(t "$title")" >&2
+    fi
     # Main-menu convention: the last entry (退出) is keyed "0" and the one
     # before it (卸载) is keyed "a", matching the legacy 3m-ui menu. Sub-menus
     # keep plain numeric keys. Detected from the item keys so callers do not
@@ -1203,29 +1228,130 @@ acme_require() {
     acme_bin >/dev/null 2>&1 || { err "$(t acme_install_fail)"; return 1; }
 }
 
-acme_install() {
-    # acme_install [email]
-    say "$(t acme_installing)"
+# Run the upstream installer.
+#   $1 = shell to run it with (bash preferred - see acme_install)
+#   $2 = optional "email=..." argument; omitted ENTIRELY when empty
+_acme_fetch_install() {
+    sh_bin=$1
+    arg=${2:-}
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL https://get.acme.sh | sh -s email="${1:-}" || {
-            err "$(t acme_install_fail)"
-            return 1
-        }
+        if [ -n "$arg" ]; then
+            curl -fsSL https://get.acme.sh | "$sh_bin" -s "$arg"
+        else
+            curl -fsSL https://get.acme.sh | "$sh_bin"
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO - https://get.acme.sh | sh -s email="${1:-}" || {
-            err "$(t acme_install_fail)"
-            return 1
-        }
+        if [ -n "$arg" ]; then
+            wget -qO - https://get.acme.sh | "$sh_bin" -s "$arg"
+        else
+            wget -qO - https://get.acme.sh | "$sh_bin"
+        fi
     else
         err "$(t acme_need_curl)"
         return 1
     fi
-    if acme_bin >/dev/null 2>&1; then
-        say "✓ $(t acme_installed): $(acme_bin)"
-    else
+}
+
+# Fallback for mainland China: acme.sh's own wiki recommends the Gitee mirror
+# when github.com is unreachable.
+acme_install_gitee() {
+    em=${1:-}
+    if ! command -v git >/dev/null 2>&1; then
+        err "$(t acme_need_git)"
+        return 1
+    fi
+    tmp=$(mktemp -d 2>/dev/null) || { err "$(t acme_install_fail)"; return 1; }
+    if ! git clone --depth 1 https://gitee.com/neilpang/acme.sh.git "$tmp/acme.sh" >/dev/null 2>&1; then
+        rm -rf "$tmp"
         err "$(t acme_install_fail)"
         return 1
     fi
+    rc=0
+    _acme_run_install "$tmp/acme.sh" "$em" || rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
+# acme.sh refuses to install when crontab is missing, because auto-renewal
+# depends on the cron entry it writes. Try a normal install first; only fall
+# back to --force with the operator's consent, and then warn loudly that
+# renewal has to be wired up by hand.
+_acme_run_install() {
+    dir=$1
+    em=${2:-}
+    if command -v crontab >/dev/null 2>&1; then
+        if [ -n "$em" ]; then
+            (cd "$dir" && ./acme.sh --install -m "$em")
+        else
+            (cd "$dir" && ./acme.sh --install)
+        fi
+        return $?
+    fi
+    say "$(t acme_no_cron)"
+    if ! ui_confirm acme_force_ask n; then
+        say "$(t g_cancelled)"
+        return 1
+    fi
+    if [ -n "$em" ]; then
+        (cd "$dir" && ./acme.sh --install --force -m "$em")
+    else
+        (cd "$dir" && ./acme.sh --install --force)
+    fi
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        say "$(t acme_no_cron_warn)"
+    fi
+    return $rc
+}
+
+acme_install() {
+    # acme_install [email]
+    em=${1:-}
+    # Already installed -> just upgrade, no need to ask about a source.
+    if acme_bin >/dev/null 2>&1; then
+        say "$(t acme_upgrading)"
+        "$(acme_bin)" --upgrade || { err "$(t acme_install_fail)"; return 1; }
+        say "✓ $(t acme_installed): $(acme_bin)"
+        return 0
+    fi
+    say "$(t acme_installing)"
+    # Ask for the source up front. On mainland-China servers the GitHub archive
+    # usually times out (acme.sh itself then prints its "Install-in-China"
+    # hint), and waiting two minutes for that timeout is miserable.
+    src=$(ui_menu acme_src_title acme_src_official acme_src_gitee g_back) || src=''
+    case "$src" in
+        1)
+            # Prefer bash: the installer aborts under dash (which is /bin/sh on
+            # Debian/Ubuntu) with "shift: can't shift that many".
+            if command -v bash >/dev/null 2>&1; then
+                shb=bash
+            else
+                shb=sh
+            fi
+            # An empty email must be OMITTED, not passed as `email=`: that
+            # hands acme.sh an empty positional parameter and breaks its
+            # argument parsing.
+            if [ -n "$em" ]; then
+                _acme_fetch_install "$shb" "email=$em"
+            else
+                _acme_fetch_install "$shb" ''
+            fi
+            ;;
+        2)
+            acme_install_gitee "$em" || return 1
+            ;;
+        *)
+            say "$(t g_cancelled)"
+            return 1
+            ;;
+    esac
+    if acme_bin >/dev/null 2>&1; then
+        say "✓ $(t acme_installed): $(acme_bin)"
+        return 0
+    fi
+    err "$(t acme_install_fail)"
+    say "$(t acme_install_hint)"
+    return 1
 }
 
 acme_issue_standalone() {
