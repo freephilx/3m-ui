@@ -1433,24 +1433,23 @@ acme_ca_menu() {
 }
 
 acme_issue_standalone() {
-    # acme_issue_standalone DOMAIN [EMAIL] [CA]  — needs port 80 free
+    # acme_issue_standalone DOMAIN [CA]  — needs port 80 free
     acme_require || return 1
     dom=$1
-    em=${2:-}
-    ca=${3:-}
+    ca=${2:-}
     say "$(t ssl_stop_hint)"
     if ! ui_confirm acme_standalone_ask n; then
         say "$(t g_cancelled)"
         return 0
     fi
     ash=$(acme_bin)
+    # acme.sh v3 takes the account email only at install time (acme_install ->
+    # --install -m). On --issue the flag is rejected ("Unknown parameter"), and
+    # --email itself is only valid for --install/--update-account. So we never
+    # forward an email here; the account (with or without an email) is created
+    # automatically when acme.sh issues the first certificate.
     set -- --issue -d "$dom" --standalone
     [ -n "$ca" ] && set -- "$@" --server "$ca"
-    if [ -n "$em" ]; then
-        set -- "$@" --email "$em"
-    else
-        set -- "$@" --register-unsafely-without-email
-    fi
     "$ash" "$@"
 }
 
@@ -1514,8 +1513,6 @@ acme_list() {
     "$(acme_bin)" --list
 }
 
-# Show what an issued certificate actually says: subject, issuer, validity
-# window, and whether it survives the next 30 days.
 # Locate the private key for a domain, or return 1.
 _acme_key_path() {
     dom=$1
@@ -1531,6 +1528,8 @@ _acme_key_path() {
     return 1
 }
 
+# Show what an issued certificate actually says: subject, issuer, validity
+# window, and whether it survives the next 30 days.
 acme_cert_info() {
     acme_require || return 1
     dom=$(ui_input i_domain '')
@@ -1607,7 +1606,7 @@ ssl_cert_menu() {
             [ -n "$dom" ] || { say "$(t g_cancelled)"; return 0; }
             ca=$(acme_ca_menu) || ca=''
             case "$c" in
-                2) em=$(ui_input i_email ''); acme_issue_standalone "$dom" "$em" "$ca" ;;
+                2) acme_issue_standalone "$dom" "$ca" ;;
                 3) acme_issue_dns "$dom" "$ca" ;;
             esac
             ;;
@@ -1658,7 +1657,12 @@ ssl_print_commands() {
             say "~/.acme.sh/acme.sh --install-cert -d $dom \\"
             say "  --key-file $CERT_DIR/${dom}.key \\"
             say "  --fullchain-file $CERT_DIR/${dom}.crt \\"
-            say '  --reloadcmd "systemctl restart 3m-ui"'
+            rcmd=$(_acme_reload_cmd)
+            if [ -n "$rcmd" ]; then
+                say "  --reloadcmd \"$rcmd\""
+            else
+                say "  # 重载命令请按你的 init 系统自行补充 (systemctl / rc-service)"
+            fi
             ;;
         3)
             say ''
