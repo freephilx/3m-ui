@@ -192,7 +192,7 @@ _t_zh() {
         i_subpath)        printf '%s' 'sub_path (订阅路径前缀)' ;;
         i_subport)        printf '%s' 'sub_port (0=与面板同端口)' ;;
         i_listen)         printf '%s' 'listen (空=全部接口)' ;;
-        i_domain)         printf '%s' '域名 (例 dzx.qzz.io)' ;;
+        i_domain)         printf '%s' '域名 (例 example.com)' ;;
         i_email)          printf '%s' '邮箱 (可空)' ;;
         i_version)        printf '%s' '输入版本号 (如 v1.1.1，回车取消)' ;;
         i_cur)            printf '%s' '现' ;;
@@ -613,9 +613,11 @@ ui_input() {
 ui_confirm() {
     prompt=$1
     def="${2:-n}"
+    # "y/n" is language neutral, so the hint stays ASCII in every locale.
+    # The capitalised letter marks the default, as is conventional.
     case "$def" in
-        y|Y) hint="$(t g_yes)/$(t g_no)" ;;
-        *)   hint="$(t g_no)/$(t g_yes)" ;;
+        y|Y) hint='Y/n' ;;
+        *)   hint='y/N' ;;
     esac
     printf '%s [%s]: ' "$(t "$prompt")" "$hint" >&2
     IFS= read -r ans || return 1
