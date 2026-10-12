@@ -66,6 +66,7 @@ cd ../backend && CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags=
 ## 감사
 
 - [Mihomo](https://github.com/MetaCubeX/mihomo) — core engine and listener model
+- [acme.sh](https://github.com/acmesh-official/acme.sh) — SSH 메뉴에서 인증서 발급/배포/갱신
 - [clashmeta-inbound](https://github.com/Tychristine/clashmeta-inbound/) — listener examples
 - [3x-ui](https://github.com/MHSanaei/3x-ui) / [s-ui](https://github.com/alireza0/s-ui) — panel UX inspiration
 - [Gin](https://github.com/gin-gonic/gin), [GORM](https://github.com/go-gorm/gorm), [React](https://github.com/facebook/react), [Ant Design](https://github.com/ant-design/ant-design)
