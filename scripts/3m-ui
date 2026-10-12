@@ -532,12 +532,32 @@ _ui_menu_classic() {
     printf '%s\n' "$(_box_line "$(t m_title2)")" >&2
     printf '%s\n' '╰──────────────────────────────────────────────╯' >&2
     printf '\n' >&2
+    # Main-menu convention: the last entry (退出) is keyed "0" and the one
+    # before it (卸载) is keyed "a", matching the legacy 3m-ui menu. Sub-menus
+    # keep plain numeric keys. Detected from the item keys so callers do not
+    # need to pass a flag.
+    special=0
+    for it in "$@"; do
+        case "$it" in
+            m_uninst|g_exit) special=$((special + 1)) ;;
+        esac
+    done
+    [ "$special" -eq 2 ] || special=0
+    n=$#
     i=1
     for item in "$@"; do
+        key=$i
+        if [ "$special" -eq 2 ]; then
+            if [ "$i" -eq "$n" ]; then
+                key='0'
+            elif [ "$i" -eq $((n - 1)) ]; then
+                key='a'
+            fi
+        fi
         if [ "$i" -lt 10 ]; then
-            printf '  %s. %s\n' "$i" "$(t "$item")" >&2
+            printf '  %s. %s\n' "$key" "$(t "$item")" >&2
         else
-            printf ' %s. %s\n' "$i" "$(t "$item")" >&2
+            printf ' %s. %s\n' "$key" "$(t "$item")" >&2
         fi
         i=$((i + 1))
     done
