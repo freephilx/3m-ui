@@ -95,6 +95,7 @@ cd ../backend && CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags=
 ## 致谢
 
 - [Mihomo](https://github.com/MetaCubeX/mihomo) — 核心引擎与 Listener 模型
+- [acme.sh](https://github.com/acmesh-official/acme.sh) — SSH 菜单的证书申请/部署/续期
 - [clashmeta-inbound](https://github.com/Tychristine/clashmeta-inbound/) — Listener 示例
 - [3x-ui](https://github.com/MHSanaei/3x-ui) / [s-ui](https://github.com/alireza0/s-ui) — 面板交互参考
 - [Gin](https://github.com/gin-gonic/gin) / [GORM](https://github.com/go-gorm/gorm) / [React](https://github.com/facebook/react) / [Ant Design](https://github.com/ant-design/ant-design)
