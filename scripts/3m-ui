@@ -28,8 +28,24 @@ DATA_DIR="${DATA_DIR:-$ROOT/var/lib/3m-ui}"
 
 # --- helpers -----------------------------------------------------------------
 
+# --- colours ----------------------------------------------------------------
+# Same palette the 3x-ui menu uses: green keys/titles, red errors, yellow
+# warnings, plain body text. Only enabled when the matching stream is a real
+# terminal, so redirected or piped output stays free of escape sequences.
+CLR_G=''; CLR_R=''; CLR_Y=''; CLR_B=''; CLR_P=''
+_clr_init() {
+    if [ -t 2 ] && [ -n "${TERM:-}" ] && [ "${TERM:-}" != dumb ]; then
+        CLR_G=$(printf '\033[0;32m')
+        CLR_R=$(printf '\033[0;31m')
+        CLR_Y=$(printf '\033[0;33m')
+        CLR_B=$(printf '\033[0;34m')
+        CLR_P=$(printf '\033[0m')
+    fi
+}
+_clr_init
+
 say() { printf '%s\n' "$*"; }
-err() { printf '%s\n' "$*" >&2; }
+err() { printf '%s%s%s\n' "$CLR_R" "$*" "$CLR_P" >&2; }
 
 need_root() {
     [ "$(id -u)" -eq 0 ] || { err "$(t need_root)"; exit 1; }
@@ -322,6 +338,17 @@ _t_zh() {
         acme_no_cert)      printf '%s' '未找到该域名的证书，请先申请（菜单 2 或 3）' ;;
         cert_key_label)    printf '%s' '私钥' ;;
         cert_crt_label)    printf '%s' '证书' ;;
+        acme_ca_title)     printf '%s' '选择证书颁发机构 (CA)' ;;
+        acme_ca_le)        printf '%s' "Let's Encrypt" ;;
+        acme_ca_zerossl)   printf '%s' 'ZeroSSL (acme.sh v3 默认)' ;;
+        acme_ca_buypass)   printf '%s' 'Buypass' ;;
+        acme_ca_sslcom)    printf '%s' 'SSL.com' ;;
+        acme_ca_google)    printf '%s' 'Google Trust Services' ;;
+        ssl_cert_info)     printf '%s' '查看证书详情' ;;
+        cert_info_of)      printf '%s' '证书信息' ;;
+        cert_need_openssl) printf '%s' '需要 openssl 才能查看证书详情' ;;
+        cert_valid_30)     printf '%s' '✓ 有效期还有 30 天以上' ;;
+        cert_expiring_30)  printf '%s' '⚠ 将在 30 天内过期，请尽快续期' ;;
         *) printf '%s' "$1" ;;
     esac
 }
@@ -528,6 +555,17 @@ _t_en() {
         acme_no_cert)      printf '%s' 'No certificate found for this domain; issue one first (menu 2 or 3)' ;;
         cert_key_label)    printf '%s' 'Private key' ;;
         cert_crt_label)    printf '%s' 'Certificate' ;;
+        acme_ca_title)     printf '%s' 'Choose a certificate authority (CA)' ;;
+        acme_ca_le)        printf '%s' "Let's Encrypt" ;;
+        acme_ca_zerossl)   printf '%s' 'ZeroSSL (acme.sh v3 default)' ;;
+        acme_ca_buypass)   printf '%s' 'Buypass' ;;
+        acme_ca_sslcom)    printf '%s' 'SSL.com' ;;
+        acme_ca_google)    printf '%s' 'Google Trust Services' ;;
+        ssl_cert_info)     printf '%s' 'Show certificate details' ;;
+        cert_info_of)      printf '%s' 'Certificate' ;;
+        cert_need_openssl) printf '%s' 'openssl is required to inspect a certificate' ;;
+        cert_valid_30)     printf '%s' 'Valid for more than 30 days' ;;
+        cert_expiring_30)  printf '%s' 'Expires within 30 days - renew it soon' ;;
         *) printf '%s' "$1" ;;
     esac
 }
@@ -553,15 +591,15 @@ _ui_menu_classic() {
     title=$1
     shift
     printf '\n' >&2
-    printf '%s\n' '╭──────────────────────────────────────────────╮' >&2
+    printf '%s%s%s\n' "$CLR_G" '╭──────────────────────────────────────────────╮' "$CLR_P" >&2
     printf '%s\n' "$(_box_line "$(t m_title1)")" >&2
     printf '%s\n' "$(_box_line "$(t m_title2)")" >&2
-    printf '%s\n' '╰──────────────────────────────────────────────╯' >&2
+    printf '%s%s%s\n' "$CLR_G" '╰──────────────────────────────────────────────╯' "$CLR_P" >&2
     printf '\n' >&2
     # Show which sub-menu we are in. The main menu passes m_title1, which the
     # box already displays, so it is not repeated.
     if [ "$title" != m_title1 ]; then
-        printf '%s\n\n' "$(t "$title")" >&2
+        printf '%s%s%s\n\n' "$CLR_G" "$(t "$title")" "$CLR_P" >&2
     fi
     # Main-menu convention: the last entry (退出) is keyed "0" and the one
     # before it (卸载) is keyed "a", matching the legacy 3m-ui menu. Sub-menus
@@ -586,9 +624,9 @@ _ui_menu_classic() {
             fi
         fi
         if [ "$i" -lt 10 ]; then
-            printf '  %s. %s\n' "$key" "$(t "$item")" >&2
+            printf '  %s%s.%s %s\n' "$CLR_G" "$key" "$CLR_P" "$(t "$item")" >&2
         else
-            printf ' %s. %s\n' "$key" "$(t "$item")" >&2
+            printf ' %s%s.%s %s\n' "$CLR_G" "$key" "$CLR_P" "$(t "$item")" >&2
         fi
         i=$((i + 1))
     done
@@ -598,8 +636,9 @@ _ui_menu_classic() {
 }
 
 _box_line() {
-    # pads a title inside the 50-col box (best effort; CJK width not exact)
-    printf '│      %s' "$1"
+    # Title line inside the box. No right border on purpose: CJK glyphs are
+    # double width, so a padded right border would not line up.
+    printf '│      %s%s%s' "$CLR_G" "$1" "$CLR_P"
 }
 
 # ui_input PROMPT_KEY [DEFAULT] -> prints the entered text (empty = cancelled)
@@ -1362,32 +1401,57 @@ acme_install() {
     return 1
 }
 
+# Pick a certificate authority. acme.sh v3 defaults to ZeroSSL, so anyone who
+# specifically wants Let's Encrypt has to say so explicitly.
+acme_ca_menu() {
+    c=$(ui_menu acme_ca_title acme_ca_le acme_ca_zerossl acme_ca_buypass \
+        acme_ca_sslcom acme_ca_google g_back) || { printf ''; return 1; }
+    case "$c" in
+        1) printf 'letsencrypt' ;;
+        2) printf 'zerossl' ;;
+        3) printf 'buypass' ;;
+        4) printf 'sslcom' ;;
+        5) printf 'google' ;;
+        *) printf '' ;;
+    esac
+}
+
 acme_issue_standalone() {
-    # acme_issue_standalone DOMAIN [EMAIL]  — needs port 80 free
+    # acme_issue_standalone DOMAIN [EMAIL] [CA]  — needs port 80 free
     acme_require || return 1
     dom=$1
     em=${2:-}
+    ca=${3:-}
     say "$(t ssl_stop_hint)"
     if ! ui_confirm acme_standalone_ask n; then
         say "$(t g_cancelled)"
         return 0
     fi
     ash=$(acme_bin)
+    set -- --issue -d "$dom" --standalone
+    [ -n "$ca" ] && set -- "$@" --server "$ca"
     if [ -n "$em" ]; then
-        "$ash" --issue -d "$dom" --standalone --email "$em"
+        set -- "$@" --email "$em"
     else
-        "$ash" --issue -d "$dom" --standalone --register-unsafely-without-email
+        set -- "$@" --register-unsafely-without-email
     fi
+    "$ash" "$@"
 }
 
 acme_issue_dns() {
-    # acme_issue_dns DOMAIN — DNS-01, never touches port 80
+    # acme_issue_dns DOMAIN [CA] — DNS-01, never touches port 80
     acme_require || return 1
     dom=$1
+    ca=${2:-}
     say "$(t acme_dns_hint)"
     dapi=$(ui_input acme_dns_api 'dns_cf')
     [ -n "$dapi" ] || { say "$(t g_cancelled)"; return 0; }
-    "$(acme_bin)" --issue -d "$dom" --dns "$dapi"
+    ash=$(acme_bin)
+    if [ -n "$ca" ]; then
+        "$ash" --issue -d "$dom" --dns "$dapi" --server "$ca"
+    else
+        "$ash" --issue -d "$dom" --dns "$dapi"
+    fi
 }
 
 # How to reload the panel once a new certificate is in place. The reload cmd
@@ -1434,6 +1498,31 @@ acme_list() {
     "$(acme_bin)" --list
 }
 
+# Show what an issued certificate actually says: subject, issuer, validity
+# window, and whether it survives the next 30 days.
+acme_cert_info() {
+    acme_require || return 1
+    dom=$(ui_input i_domain '')
+    [ -n "$dom" ] || { say "$(t g_cancelled)"; return 0; }
+    ash=$(acme_bin)
+    home=$(dirname "$ash")
+    # Prefer the copy deployed into the panel, fall back to acme.sh's store.
+    cert=$CERT_DIR/${dom}.crt
+    [ -f "$cert" ] || cert="$home/$dom/fullchain.cer"
+    [ -f "$cert" ] || { err "$(t acme_no_cert): $dom"; return 1; }
+    if ! command -v openssl >/dev/null 2>&1; then
+        err "$(t cert_need_openssl)"
+        return 1
+    fi
+    say "$(t cert_info_of): $cert"
+    openssl x509 -in "$cert" -noout -subject -issuer -dates 2>&1
+    if openssl x509 -in "$cert" -noout -checkend "$((30 * 86400))" >/dev/null 2>&1; then
+        say "$(t cert_valid_30)"
+    else
+        say "$(t cert_expiring_30)"
+    fi
+}
+
 acme_renew() {
     # acme_renew DOMAIN
     acme_require || return 1
@@ -1446,21 +1535,29 @@ ssl_cert_menu() {
     say "$(t ssl_head2)"
     say ''
     c=$(ui_menu ssl_title ssl_install_acme ssl_issue_standalone ssl_issue_dns \
-        ssl_deploy ssl_list ssl_renew ssl_print g_back) || return 0
+        ssl_deploy ssl_list ssl_cert_info ssl_renew ssl_print g_back) || return 0
     case "$c" in
         1) acme_install "$(ui_input i_email '')" ;;
-        2|3|4|6)
+        2|3)
+            dom=$(ui_input i_domain '')
+            [ -n "$dom" ] || { say "$(t g_cancelled)"; return 0; }
+            ca=$(acme_ca_menu) || ca=''
+            case "$c" in
+                2) em=$(ui_input i_email ''); acme_issue_standalone "$dom" "$em" "$ca" ;;
+                3) acme_issue_dns "$dom" "$ca" ;;
+            esac
+            ;;
+        4|7)
             dom=$(ui_input i_domain '')
             [ -n "$dom" ] || { say "$(t g_cancelled)"; return 0; }
             case "$c" in
-                2) em=$(ui_input i_email ''); acme_issue_standalone "$dom" "$em" ;;
-                3) acme_issue_dns "$dom" ;;
                 4) acme_deploy "$dom" ;;
-                6) acme_renew "$dom" ;;
+                7) acme_renew "$dom" ;;
             esac
             ;;
         5) acme_list ;;
-        7) ssl_print_commands ;;
+        6) acme_cert_info ;;
+        8) ssl_print_commands ;;
         *) return 0 ;;
     esac
 }
