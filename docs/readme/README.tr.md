@@ -66,6 +66,7 @@ Statik ikililer: [Releases](https://github.com/kazeyukiro/3m-ui/releases).
 ## Teşekkürler
 
 - [Mihomo](https://github.com/MetaCubeX/mihomo) — core engine and listener model
+- [acme.sh](https://github.com/acmesh-official/acme.sh) — SSH menüsünde sertifika oluşturma, dağıtma ve yenileme
 - [clashmeta-inbound](https://github.com/Tychristine/clashmeta-inbound/) — listener examples
 - [3x-ui](https://github.com/MHSanaei/3x-ui) / [s-ui](https://github.com/alireza0/s-ui) — panel UX inspiration
 - [Gin](https://github.com/gin-gonic/gin), [GORM](https://github.com/go-gorm/gorm), [React](https://github.com/facebook/react), [Ant Design](https://github.com/ant-design/ant-design)
