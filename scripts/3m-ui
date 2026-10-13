@@ -145,7 +145,7 @@ _t_zh() {
         # generic
         need_root)        printf '%s' '请使用 root 运行 3m-ui 管理命令。' ;;
         g_select)         printf '%s' '请选择' ;;
-        g_nav)            printf '%s' '↑↓/j k 移动 · Enter 确认 · 数字直达 · q 返回' ;;
+        g_nav)            printf '%s' '[↑↓/j k] 移动  [Enter] 确认  [0-9] 直达  [q] 返回' ;;
         g_press_enter)    printf '%s' '按回车返回菜单' ;;
         g_enter_key)      printf '%s' '按回车继续' ;;
         g_invalid)        printf '%s' '无效选择，请重新输入。' ;;
@@ -307,6 +307,8 @@ _t_zh() {
         uimode_current)   printf '%s' '当前界面模式' ;;
         uimode_set)       printf '%s' '界面模式已设置为' ;;
         uimode_now)       printf '%s' '当前生效后端' ;;
+        ui_running)       printf '%s' '运行中' ;;
+        ui_stopped)       printf '%s' '未运行' ;;
         cfg_no_server)    printf '%s' '配置中未找到 server: 段，无法写入' ;;
         fw_confirm)       printf '%s' '将放行 22 / 80 / 443 与面板端口，这会扩大公网暴露面。' ;;
         ssl_disclaimer)   printf '%s' '# 以下仅为示例命令，请自行确认来源后再执行' ;;
@@ -382,7 +384,7 @@ _t_en() {
         g_back)           printf '%s' 'Back' ;;
         g_yes)            printf '%s' 'Yes' ;;
         g_no)             printf '%s' 'No' ;;
-        g_nav)            printf '%s' '↑↓/j k move · Enter confirm · number jump · q back' ;;
+        g_nav)            printf '%s' '[↑↓/j k] move  [Enter] confirm  [0-9] jump  [q] back' ;;
         g_exit)           printf '%s' 'Exit' ;;
         m_title1)         printf '%s' '3m-ui Management Console' ;;
         m_title2)         printf '%s' 'Mihomo Core Management UI' ;;
@@ -532,6 +534,8 @@ _t_en() {
         uimode_current)   printf '%s' 'Current UI mode' ;;
         uimode_set)       printf '%s' 'UI mode set to' ;;
         uimode_now)       printf '%s' 'Active backend' ;;
+        ui_running)       printf '%s' 'running' ;;
+        ui_stopped)       printf '%s' 'stopped' ;;
         cfg_no_server)    printf '%s' 'No server: block in config, cannot write' ;;
         fw_confirm)       printf '%s' 'This opens 22 / 80 / 443 and the panel port, widening public exposure.' ;;
         ssl_disclaimer)   printf '%s' '# Example commands only - verify the source before running' ;;
@@ -629,7 +633,9 @@ ui_backend() {
 }
 
 _TTY_SAVED=''
-_UI_RULE='──────────────────────────────────────────'
+_UI_W=46
+_UI_RULE='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+_UI_MARK='▌ '
 
 _tty_raw() {
     _TTY_SAVED=$(stty -g 2>/dev/null) || return 1
@@ -748,15 +754,49 @@ _ui_menu_tui() {
     sel=1
     buf=''
     idle=0
+    # Panel metadata is static for the lifetime of this menu, so resolve it
+    # once instead of shelling out again on every redraw.
+    meta_ver=''
+    if [ -s "$BASE/VERSION" ]; then
+        meta_ver=$(tr -d '\n\r' < "$BASE/VERSION")
+    fi
+    if service_is_active >/dev/null 2>&1; then
+        meta_state="$(t ui_running)"
+        state_clr=$CLR_G
+    else
+        meta_state="$(t ui_stopped)"
+        state_clr=$CLR_R
+    fi
     while :; do
         printf '\033[2J\033[H' >&2
         printf '\033[?25l' >&2
         printf '%s%s%s\n' "$CLR_G" "$_UI_RULE" "$CLR_P" >&2
         printf '%s%s%s\n' "$CLR_G" "$(t m_title1)" "$CLR_P" >&2
-        printf '%s\n' "$(t m_title2)" >&2
+        # Subtitle + version + service state. This line is ASCII only, so it is
+        # safe to pad to the rule width here; the CJK menu labels below
+        # deliberately never get a right-hand border.
+        meta_left="$(t m_title2)"
+        if [ -n "$meta_ver" ]; then
+            # VERSION already carries a "v" prefix in most builds; only add one
+            # when the file happens to store a bare number.
+            case "$meta_ver" in
+                v*) meta_left="$meta_left $meta_ver" ;;
+                *)  meta_left="$meta_left v$meta_ver" ;;
+            esac
+        fi
+        pad=$((_UI_W - ${#meta_left} - ${#meta_state}))
+        [ "$pad" -gt 1 ] || pad=1
+        pad_sp=''
+        pi=0
+        while [ "$pi" -lt "$pad" ]; do
+            pad_sp="$pad_sp "
+            pi=$((pi + 1))
+        done
+        printf '%s%s%s%s%s%s\n' "$CLR_B" "$meta_left" "$pad_sp" \
+            "$state_clr" "$meta_state" "$CLR_P" >&2
         printf '%s%s%s\n\n' "$CLR_G" "$_UI_RULE" "$CLR_P" >&2
         if [ "$title" != m_title1 ]; then
-            printf '%s%s%s\n\n' "$CLR_Y" "$(t "$title")" "$CLR_P" >&2
+            printf '%s%s%s%s\n\n' "$CLR_Y" "$_UI_MARK" "$(t "$title")" "$CLR_P" >&2
         fi
         i=1
         for item in "$@"; do
