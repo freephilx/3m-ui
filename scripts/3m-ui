@@ -145,6 +145,7 @@ _t_zh() {
         # generic
         need_root)        printf '%s' '请使用 root 运行 3m-ui 管理命令。' ;;
         g_select)         printf '%s' '请选择' ;;
+        g_nav)            printf '%s' '↑↓/j k 移动 · Enter 确认 · 数字直达 · q 返回' ;;
         g_press_enter)    printf '%s' '按回车返回菜单' ;;
         g_enter_key)      printf '%s' '按回车继续' ;;
         g_invalid)        printf '%s' '无效选择，请重新输入。' ;;
@@ -180,6 +181,7 @@ _t_zh() {
         m_backup)         printf '%s' '备份' ;;
         m_selfupd)        printf '%s' '更新 3m-ui（含管理脚本）' ;;
         m_lang)           printf '%s' '语言 / Language' ;;
+        m_uimode)         printf '%s' '界面模式 / UI mode' ;;
         m_uninst)         printf '%s' '卸载' ;;
         # sub menus
         bbr_title)        printf '%s' 'BBR' ;;
@@ -298,6 +300,13 @@ _t_zh() {
         lang_current)     printf '%s' '当前语言' ;;
         lang_set)         printf '%s' '语言已设置为' ;;
         lang_saved)       printf '%s' '已保存到' ;;
+        uimode_title)     printf '%s' '界面模式 / UI mode' ;;
+        uimode_tui)       printf '%s' 'TUI 面板（方向键导航）' ;;
+        uimode_classic)   printf '%s' '经典纯文本菜单' ;;
+        uimode_usage)     printf '%s' '用法: 3m-ui tui [on|off|auto]' ;;
+        uimode_current)   printf '%s' '当前界面模式' ;;
+        uimode_set)       printf '%s' '界面模式已设置为' ;;
+        uimode_now)       printf '%s' '当前生效后端' ;;
         cfg_no_server)    printf '%s' '配置中未找到 server: 段，无法写入' ;;
         fw_confirm)       printf '%s' '将放行 22 / 80 / 443 与面板端口，这会扩大公网暴露面。' ;;
         ssl_disclaimer)   printf '%s' '# 以下仅为示例命令，请自行确认来源后再执行' ;;
@@ -373,7 +382,7 @@ _t_en() {
         g_back)           printf '%s' 'Back' ;;
         g_yes)            printf '%s' 'Yes' ;;
         g_no)             printf '%s' 'No' ;;
-        g_nav)            printf '%s' '↑↓ Select / Enter confirm / q back' ;;
+        g_nav)            printf '%s' '↑↓/j k move · Enter confirm · number jump · q back' ;;
         g_exit)           printf '%s' 'Exit' ;;
         m_title1)         printf '%s' '3m-ui Management Console' ;;
         m_title2)         printf '%s' 'Mihomo Core Management UI' ;;
@@ -588,17 +597,238 @@ _t_en() {
 
 # --- menu rendering / input ---------------------------------------------------
 
-_TTY_SAVED=''
+# --- TUI backend -------------------------------------------------------------
+# ANSI self-drawn menu. Business logic stays untouched: ui_menu still prints a
+# token on stdout, so every `case $(ui_menu ...)` caller keeps working.
 
-# Reads exactly one byte into $_B. Same sentinel trick: with icrnl enabled,
-# Enter arrives as "\n" and $(dd ...) would otherwise yield an empty string,
-# making Enter indistinguishable from a timeout.
+# Backend selection: THREE_M_UI_TUI > menu.conf > tty/TERM autodetect.
+#   tui     : ANSI panel with arrow-key navigation (needs a real terminal)
+#   classic : the original plain-text menu (pipes, cron, CI, dumb terminals)
+# NOTE: auto probes stdin (keys) and stderr (we render there) rather than
+# stdout, because ui_menu usually runs inside $( ) where stdout is a pipe and
+# would therefore always look non-interactive.
+ui_backend() {
+    # Hard guards come FIRST: without a usable terminal there is no way to read
+    # keys or draw ANSI, whatever the user persisted. This keeps pipes, cron,
+    # CI and dumb terminals on the classic menu no matter what menu.conf says.
+    [ -t 0 ] && [ -t 2 ] || { printf 'classic'; return 0; }
+    case "${TERM:-}" in
+        dumb|'') printf 'classic'; return 0 ;;
+    esac
+    case "${THREE_M_UI_TUI:-}" in
+        classic|off|0|plain) printf 'classic'; return 0 ;;
+        tui|on|1|ansi)       printf 'tui';     return 0 ;;
+    esac
+    pref=$(menu_conf_get ui)
+    [ -n "$pref" ] || pref='auto'
+    case "$pref" in
+        classic|off|0|plain) printf 'classic'; return 0 ;;
+        tui|on|1|ansi)       printf 'tui';     return 0 ;;
+    esac
+    printf 'tui'
+}
+
+_TTY_SAVED=''
+_UI_RULE='──────────────────────────────────────────'
+
+_tty_raw() {
+    _TTY_SAVED=$(stty -g 2>/dev/null) || return 1
+    stty -echo -icanon min 1 time 5 2>/dev/null || return 1
+    return 0
+}
+
+_tty_restore() {
+    if [ -n "$_TTY_SAVED" ]; then
+        stty "$_TTY_SAVED" 2>/dev/null || true
+        _TTY_SAVED=''
+    fi
+    # Show the cursor again. MUST go to stderr: this also runs from the EXIT
+    # trap inside $(ui_menu ...), where stdout carries the token back to the
+    # caller - an escape sequence there would corrupt the selection.
+    printf '\033[?25h' >&2 2>/dev/null || true
+    return 0
+}
+
+# Leaves raw mode AND drops the traps, so a ui_menu that is called without
+# command substitution cannot leak handlers into the rest of the script.
+_tty_off() {
+    _tty_restore
+    trap - EXIT INT TERM 2>/dev/null || true
+    return 0
+}
+
+# Real CR / NL / ESC bytes, built with a sentinel: $(printf '\n') evaluates to
+# an EMPTY string (command substitution strips trailing newlines), so it can
+# never be used as a case pattern. The sentinel keeps the byte intact.
+_B_CR=$(printf '\rX');    _CR=${_B_CR%X}
+_B_NL=$(printf '\nX');    _NL=${_B_NL%X}
+_B_ESC=$(printf '\033X'); _ESC=${_B_ESC%X}
+
+# Reads exactly one byte into $_B (same sentinel trick: with icrnl enabled
+# Enter arrives as "\n", which a bare $(dd ...) would report as empty).
+_read1() {
+    _B=$(dd bs=1 count=1 2>/dev/null; printf 'X')
+    _B=${_B%X}
+    return 0
+}
+
+# Reads one key; prints UP / DOWN / ENTER / SPACE / ESC / TIMEOUT / CHAR:<c>
+_kbd() {
+    _read1
+    b1=$_B
+    [ -n "$b1" ] || { printf 'TIMEOUT'; return 0; }
+    if [ "$b1" = "$_ESC" ]; then
+        _read1; b2=$_B
+        _read1; b3=$_B
+        case "$b2$b3" in
+            '[A') printf 'UP';   return 0 ;;
+            '[B') printf 'DOWN'; return 0 ;;
+        esac
+        printf 'ESC'
+        return 0
+    fi
+    case "$b1" in
+        "$_CR") printf 'ENTER'; return 0 ;;
+        "$_NL") printf 'ENTER'; return 0 ;;
+        ' ')    printf 'SPACE'; return 0 ;;
+    esac
+    printf 'CHAR:%s' "$b1"
+}
+
 # ui_menu TITLE_KEY ITEM_KEY...
-# Renders the numbered menu on stderr and prints the raw typed token on stdout,
-# so callers can capture the choice with $(ui_menu ...) and legacy keys
-# ("1".."23", "a", "0") keep working.
+#   TUI     -> full-screen panel, highlighted entry, Enter confirms
+#   classic -> the raw typed token, so legacy keys ("1".."26", "a", "0") work
+# IMPORTANT: all rendering goes to stderr, ONLY the token goes to stdout,
+# otherwise a caller capturing via $(ui_menu ...) would swallow the UI.
 ui_menu() {
-    _ui_menu_classic "$@"
+    if [ "$(ui_backend)" = classic ]; then
+        _ui_menu_classic "$@"
+        return $?
+    fi
+    if ! _tty_raw; then
+        _ui_menu_classic "$@"
+        return $?
+    fi
+    # never leave the terminal in raw mode, whatever happens afterwards
+    trap '_tty_off; exit 130' INT
+    trap '_tty_off; exit 143' TERM
+    trap '_tty_off' EXIT
+    _ui_menu_tui "$@"
+    rc=$?
+    _tty_off
+    return "$rc"
+}
+
+# Maps a highlighted position back to the token the caller expects. The main
+# menu keeps 3m-ui's legacy layout: last entry "0", the one before it "a".
+_ui_token() {
+    _ui_tok=$1
+    if [ "$3" -eq 2 ]; then
+        if [ "$1" -eq "$2" ]; then printf '0'; return 0; fi
+        if [ "$1" -eq $(($2 - 1)) ]; then printf 'a'; return 0; fi
+    fi
+    printf '%s' "$_ui_tok"
+}
+
+# Width-safe by design: labels sit inside reverse-video bars, so CJK
+# double-width glyphs can never misalign a right-hand border.
+_ui_menu_tui() {
+    title=$1
+    shift
+    n=$#
+    # Same convention as the classic backend: 卸载 is keyed "a" and 退出 "0".
+    # Detected from the item keys, so callers need no extra flag.
+    special=0
+    for it in "$@"; do
+        case "$it" in
+            m_uninst|g_exit) special=$((special + 1)) ;;
+        esac
+    done
+    [ "$special" -eq 2 ] || special=0
+    sel=1
+    buf=''
+    idle=0
+    while :; do
+        printf '\033[2J\033[H' >&2
+        printf '\033[?25l' >&2
+        printf '%s%s%s\n' "$CLR_G" "$_UI_RULE" "$CLR_P" >&2
+        printf '%s%s%s\n' "$CLR_G" "$(t m_title1)" "$CLR_P" >&2
+        printf '%s\n' "$(t m_title2)" >&2
+        printf '%s%s%s\n\n' "$CLR_G" "$_UI_RULE" "$CLR_P" >&2
+        if [ "$title" != m_title1 ]; then
+            printf '%s%s%s\n\n' "$CLR_Y" "$(t "$title")" "$CLR_P" >&2
+        fi
+        i=1
+        for item in "$@"; do
+            tok=$i
+            if [ "$special" -eq 2 ]; then
+                if [ "$i" -eq "$n" ]; then
+                    tok='0'
+                elif [ "$i" -eq $((n - 1)) ]; then
+                    tok='a'
+                fi
+            fi
+            if [ "$i" -eq "$sel" ]; then
+                printf '\033[7m ▸ %s. %s\033[0m\n' "$tok" "$(t "$item")" >&2
+            else
+                printf '   %s%s.%s %s\n' "$CLR_G" "$tok" "$CLR_P" "$(t "$item")" >&2
+            fi
+            i=$((i + 1))
+        done
+        printf '\n%s%s%s\n' "$CLR_G" "$_UI_RULE" "$CLR_P" >&2
+        printf '%s%s%s\n' "$CLR_G" "$(t g_nav)" "$CLR_P" >&2
+        k=$(_kbd)
+        case "$k" in
+            UP|'CHAR:k'|'CHAR:K')
+                buf=''
+                if [ "$sel" -gt 1 ]; then sel=$((sel - 1)); else sel=$n; fi
+                ;;
+            DOWN|'CHAR:j'|'CHAR:J')
+                buf=''
+                if [ "$sel" -lt "$n" ]; then sel=$((sel + 1)); else sel=1; fi
+                ;;
+            ENTER|SPACE)
+                tok=$(_ui_token "$sel" "$n" "$special")
+                _tty_off
+                printf '\n' >&2
+                printf '%s' "$tok"
+                return 0
+                ;;
+            'CHAR:q'|'CHAR:Q'|ESC)
+                _tty_off
+                printf '\n' >&2
+                return 1
+                ;;
+            TIMEOUT)
+                # Nothing pressed. Keep waiting, but bail out when stdin is
+                # exhausted (a piped script on a pty) so we never spin forever.
+                idle=$((idle + 1))
+                if [ "$idle" -ge 20 ]; then
+                    _tty_off
+                    printf '\n' >&2
+                    return 1
+                fi
+                ;;
+            CHAR:0|CHAR:1|CHAR:2|CHAR:3|CHAR:4|CHAR:5|CHAR:6|CHAR:7|CHAR:8|CHAR:9)
+                # Accumulate so "2" then "0" reaches entry 20.
+                d=${k#CHAR:}
+                cand="$buf$d"
+                # strip leading zeros so $(( )) never sees an octal like 08
+                while [ "${cand#0}" != "$cand" ]; do cand=${cand#0}; done
+                [ -n "$cand" ] || cand=0
+                if [ "$cand" -ge 1 ] && [ "$cand" -le "$n" ]; then
+                    buf=$cand
+                    sel=$cand
+                elif [ "$d" -ge 1 ] && [ "$d" -le "$n" ]; then
+                    buf=$d
+                    sel=$d
+                else
+                    buf=''
+                fi
+                ;;
+            *) buf='' ;;
+        esac
+    done
 }
 
 # Classic backend: the original box-drawn numbered menu, rendered to stderr.
@@ -1744,6 +1974,59 @@ lang_menu() {
     say "$(t lang_set): $LANG_CODE"
 }
 
+# UI mode (TUI vs classic). Persisted in menu.conf under the `ui` key;
+# THREE_M_UI_TUI overrides it for a single run.
+uimode_cmd() {
+    arg="${1:-}"
+    case "$arg" in
+        '')
+            cur=$(menu_conf_get ui)
+            [ -n "$cur" ] || cur=auto
+            say "$(t uimode_current): $cur"
+            say "$(t uimode_now): $(ui_backend)"
+            say "$(t uimode_usage)"
+            return 0
+            ;;
+        on|tui|1|ansi)
+            menu_conf_set ui tui
+            say "$(t uimode_set): tui"
+            say "$(t uimode_now): $(ui_backend)"
+            return 0
+            ;;
+        off|classic|0|plain)
+            menu_conf_set ui classic
+            say "$(t uimode_set): classic"
+            say "$(t uimode_now): $(ui_backend)"
+            return 0
+            ;;
+        auto)
+            # auto: drop the persisted value and fall back to tty detection
+            if [ -f "$MENU_CONF" ]; then
+                tmp="${MENU_CONF}.tmp.$$"
+                awk '$0 !~ /^[[:space:]]*ui[[:space:]]*=/' "$MENU_CONF" > "$tmp" && mv "$tmp" "$MENU_CONF"
+            fi
+            say "$(t uimode_set): auto"
+            say "$(t uimode_now): $(ui_backend)"
+            return 0
+            ;;
+        *)
+            err "$(t uimode_usage)"
+            return 2
+            ;;
+    esac
+}
+
+uimode_menu() {
+    c=$(ui_menu uimode_title uimode_tui uimode_classic g_back) || return 0
+    case "$c" in
+        1) menu_conf_set ui tui ;;
+        2) menu_conf_set ui classic ;;
+        *) return 0 ;;
+    esac
+    say "$(t uimode_set): $(menu_conf_get ui)"
+    say "$(t uimode_now): $(ui_backend)"
+}
+
 # --- menu --------------------------------------------------------------------
 
 menu() {
@@ -1752,7 +2035,7 @@ menu() {
             m_install m_update m_update_ver m_status m_start m_restart m_stop \
             m_autostart m_logs m_version m_access m_port m_puburl m_paths \
             m_resetadm m_resetconf m_health m_bbr m_geo m_fw m_ssl m_backup \
-            m_selfupd m_lang m_uninst g_exit) || {
+            m_selfupd m_lang m_uimode m_uninst g_exit) || {
             # q / ESC / EOF -> leave the menu
             exit 0
         }
@@ -1806,8 +2089,9 @@ menu() {
             22) run_script "$INSTALLER" --backup || true; ui_pause ;;
             23) update_self || true; ui_pause ;;
             24) lang_menu || true; ui_pause ;;
-            25|a|A) run_script "$UNINSTALLER" || true; ui_pause ;;
-            26|0) exit 0 ;;
+            25) uimode_menu || true; ui_pause ;;
+            26|a|A) run_script "$UNINSTALLER" || true; ui_pause ;;
+            27|0) exit 0 ;;
             *) say "$(t g_invalid)" ;;
         esac
     done
@@ -1873,6 +2157,7 @@ main() {
         version) version ;;
         channel) shift; channel_cmd "$@" ;;
         lang) shift; lang_cmd "$@" ;;
+        tui) shift; uimode_cmd "$@" ;;
         config) shift; run_script "$MANAGER" config "$@" ;;
         backup) shift; run_script "$INSTALLER" --backup "$@" ;;
         restore) shift; run_script "$INSTALLER" --restore "$@" ;;
@@ -1917,7 +2202,7 @@ main() {
             printf '%s\n' '配置 Config : config show | config port <port>'
             printf '%s\n' '安装 Install: update [vX.Y.Z|pre] | channel stable|pre [--update] | install | uninstall [--purge]'
             printf '%s\n' '数据 Data   : backup | restore <snapshot.tar.gz> | reset-admin | reset-config | healthcheck'
-            printf '%s\n' '界面 UI     : lang [zh|en|auto] | menu'
+            printf '%s\n' '界面 UI     : lang [zh|en|auto] | tui [on|off|auto] | menu'
             printf '%s\n' ''
             printf '%s\n' 'SSH 救援 / SSH rescue:'
             printf '%s\n' '  3m-ui reset-config --panel --yes   # 重置 listen/SSL，重启后 HTTP 访问'
