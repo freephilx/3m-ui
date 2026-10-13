@@ -288,6 +288,7 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 			} else {
 				copyOption(p, opts, "alterId")
 			}
+			ensureVMessClientRequiredFields(protocol, p)
 			applyMuxOptionAsSmux(p, opts)
 			applyClientWrappers(p, opts)
 			ensureClientAccessTLS(p, l, server, opts)
@@ -939,6 +940,22 @@ func applyMuxOptionAsSmux(p, opts map[string]interface{}) {
 	}
 	smux["enabled"] = true
 	p["smux"] = smux
+}
+
+// ensureVMessClientRequiredFields fills Mihomo-required client fields for type: vmess.
+// Wiki (proxies/vmess): alterId and cipher are required; missing values make Clash/Mihomo
+// reject the whole subscription with "has unset fields: alterId, cipher".
+func ensureVMessClientRequiredFields(protocol string, p map[string]interface{}) {
+	if protocol != "vmess" || p == nil {
+		return
+	}
+	if _, ok := p["alterId"]; !ok || p["alterId"] == nil {
+		p["alterId"] = 0
+	}
+	cipher, _ := p["cipher"].(string)
+	if strings.TrimSpace(cipher) == "" {
+		p["cipher"] = "auto"
+	}
 }
 
 func ensureClientAccessTLS(p map[string]interface{}, l models.Listener, server string, opts map[string]interface{}) {
