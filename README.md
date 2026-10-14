@@ -70,6 +70,14 @@ curl -fsSL https://raw.githubusercontent.com/kazeyukiro/3m-ui/main/scripts/insta
 管理命令   3m-ui
 ```
 
+终端控制中心（TUI）：
+
+```bash
+sudo 3m-ui tui
+```
+
+多栏仪表盘：概览 / 服务 / 证书 / 系统，方向键导航、回车执行、`q` 退出。需要真实终端（SSH 会话）；管道或 `TERM=dumb` 下会提示并退出，可改用 `3m-ui` 经典菜单或 Web 面板。
+
 更新：
 
 ```bash

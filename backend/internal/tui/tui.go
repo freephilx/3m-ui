@@ -124,6 +124,22 @@ func Run(cfg *config.Config, configPath string) error {
 	return nil
 }
 
+// versionTag renders the panel version for the header. Release builds embed
+// the git tag, which already carries the "v" prefix (the release workflow
+// passes vX.Y.Z), so blind-prefixing again rendered "vv1.3.5". Dev builds and
+// bare "1.3.5" values are normalised the other way.
+func versionTag() string {
+	v := buildinfo.Version
+	switch {
+	case v == "" || v == "dev":
+		return v
+	case strings.HasPrefix(v, "v"):
+		return v
+	default:
+		return "v" + v
+	}
+}
+
 // filepathJoin returns <dir of configPath>/name without importing path/filepath
 // twice - kept as a tiny helper so the cert dir follows the config location.
 func filepathJoin(configPath, name string) string {
@@ -383,7 +399,7 @@ func (c *Console) render() string {
 		state = c.strings.Stopped
 		stateClr = red
 	}
-	right := paint("v"+buildinfo.Version+"  ● "+state, stateClr)
+	right := paint(versionTag()+"  ● "+state, stateClr)
 	sb.WriteString(rowLR(paint(" "+c.strings.AppTitle, bold), right, w))
 	sb.WriteString("\r\n")
 
@@ -421,7 +437,11 @@ func (c *Console) renderBody(w, bh int) []string {
 	sw := 12
 	sideW := sw + 2
 	gap := 2
-	cw := w - sideW - gap - 1
+	// Content width is whatever is left after the sidebar and the gap, so a
+	// joined row (side + gap + content) spans exactly w columns and lines up
+	// with the header/footer rules. The old "- 1" left every body row one
+	// column short of the full-width separators.
+	cw := w - sideW - gap
 	if cw < 8 {
 		cw = 8
 	}
@@ -461,7 +481,7 @@ func (c *Console) renderBody(w, bh int) []string {
 	rows := c.rows()
 	content := make([]string, 0, bh)
 	title := c.cats[c.catIdx].title
-	content = append(content, paint(truncate(" "+title, cw), bold+green))
+	content = append(content, padRight(paint(truncate(" "+title, cw), bold+green), cw))
 	for i, row := range rows {
 		if len(content) >= bh {
 			break

@@ -1910,6 +1910,7 @@ main() {
             run_script "$UNINSTALLER" "$@"
             ;;
         menu) menu ;;
+        tui) run_app tui ;;
         help|-h|--help)
             printf '%s\n' '用法: 3m-ui <命令> [参数] / Usage: 3m-ui <command> [args]'
             printf '%s\n' ''
@@ -1917,7 +1918,8 @@ main() {
             printf '%s\n' '配置 Config : config show | config port <port>'
             printf '%s\n' '安装 Install: update [vX.Y.Z|pre] | channel stable|pre [--update] | install | uninstall [--purge]'
             printf '%s\n' '数据 Data   : backup | restore <snapshot.tar.gz> | reset-admin | reset-config | healthcheck'
-            printf '%s\n' '界面 UI     : lang [zh|en|auto] | menu'
+            printf '%s\n' '界面 UI     : lang [zh|en|auto] | menu | tui'
+            printf '%s\n' '  3m-ui tui  # 终端控制中心（多栏仪表盘，需真实终端；q 退出）'
             printf '%s\n' ''
             printf '%s\n' 'SSH 救援 / SSH rescue:'
             printf '%s\n' '  3m-ui reset-config --panel --yes   # 重置 listen/SSL，重启后 HTTP 访问'
