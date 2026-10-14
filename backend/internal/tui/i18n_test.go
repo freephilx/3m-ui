@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -62,20 +64,23 @@ func TestPickStrings(t *testing.T) {
 	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG", "THREE_M_UI_LANG"} {
 		t.Setenv(key, "")
 	}
-	if got := pickStrings(); got.AppTitle != zh.AppTitle {
+	if got := pickStrings(""); got.AppTitle != zh.AppTitle {
 		t.Errorf("default should be Chinese, got %q", got.AppTitle)
 	}
 	t.Setenv("THREE_M_UI_LANG", "en")
-	if got := pickStrings(); got.AppTitle != en.AppTitle {
+	if got := pickStrings(""); got.AppTitle != en.AppTitle {
 		t.Errorf("THREE_M_UI_LANG=en should win, got %q", got.AppTitle)
 	}
 	t.Setenv("THREE_M_UI_LANG", "")
 	t.Setenv("LANG", "en_US.UTF-8")
-	if got := pickStrings(); got.AppTitle != en.AppTitle {
-		t.Errorf("LANG=en_* should select English, got %q", got.AppTitle)
+	// Deliberately Chinese: the shell menu's detector only recognises zh, and
+	// every other locale falls through to the project default. Matching that
+	// is the whole point - see TestPickStringsHonoursMenuConf.
+	if got := pickStrings(""); got.AppTitle != zh.AppTitle {
+		t.Errorf("an English locale should fall through to the default (zh), got %q", got.AppTitle)
 	}
 	t.Setenv("LANG", "zh_CN.UTF-8")
-	if got := pickStrings(); got.AppTitle != zh.AppTitle {
+	if got := pickStrings(""); got.AppTitle != zh.AppTitle {
 		t.Errorf("LANG=zh_* should select Chinese, got %q", got.AppTitle)
 	}
 }
@@ -153,4 +158,49 @@ func serverConfig(listen string, port int, webPath string) config.Config {
 		Listen:  listen,
 		WebPath: webPath,
 	}}
+}
+
+// The console and the shell menu must agree on the language. The menu saves
+// its choice to menu.conf beside the panel config; the console has to honour
+// it, otherwise a host whose distro ships LANG=en_US.UTF-8 shows English while
+// the menu right next to it shows Chinese - the exact bug this guards.
+func TestPickStringsHonoursMenuConf(t *testing.T) {
+	dir := t.TempDir()
+	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		t.Setenv(key, "en_US.UTF-8")
+	}
+	t.Setenv("THREE_M_UI_LANG", "")
+
+	if err := os.WriteFile(filepath.Join(dir, "menu.conf"), []byte("# saved\nlang=zh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := pickStrings(dir); got.AppTitle != zh.AppTitle {
+		t.Errorf("menu.conf lang=zh should win over LANG=en_US, got %q", got.AppTitle)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "menu.conf"), []byte("lang = \"en\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := pickStrings(dir); got.AppTitle != en.AppTitle {
+		t.Errorf("menu.conf lang=en should be honoured, got %q", got.AppTitle)
+	}
+
+	// An explicit override still beats the saved value.
+	t.Setenv("THREE_M_UI_LANG", "zh")
+	if got := pickStrings(dir); got.AppTitle != zh.AppTitle {
+		t.Errorf("THREE_M_UI_LANG should beat menu.conf, got %q", got.AppTitle)
+	}
+
+	// "auto" re-detects first, but an English locale is "unknown" to the
+	// detector, so - like the shell menu - it still lands on the saved value.
+	t.Setenv("THREE_M_UI_LANG", "auto")
+	if got := pickStrings(dir); got.AppTitle != en.AppTitle {
+		t.Errorf("auto + undetected locale should fall back to menu.conf (en), got %q", got.AppTitle)
+	}
+
+	// A missing file falls through to the project default (Chinese), which is
+	// what the shell menu does for a non-Chinese locale with nothing saved.
+	if got := pickStrings(filepath.Join(dir, "nope")); got.AppTitle != zh.AppTitle {
+		t.Errorf("missing menu.conf should fall back to the default (zh), got %q", got.AppTitle)
+	}
 }

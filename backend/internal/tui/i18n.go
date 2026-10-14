@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -218,6 +219,20 @@ type Strings struct {
 	Copied     string
 	Unlimited  string
 	Never      string
+
+	// --- frame: welcome lines, bottom buttons, footer hints ---
+	Welcome1   string
+	Welcome2   string
+	BtnEnter   string
+	BtnBack    string
+	BtnRefresh string
+	BtnQuit    string
+	BtnOk      string
+	BtnClose   string
+	ExitRow    string
+	HintNav    string
+	HintModal  string
+	HintOutput string
 }
 
 var zh = Strings{
@@ -416,6 +431,19 @@ var zh = Strings{
 	Copied:     "已复制",
 	Unlimited:  "不限",
 	Never:      "永不过期",
+
+	Welcome1:   "欢迎使用 3m-ui 终端控制中心",
+	Welcome2:   "请使用触摸屏或方向键+回车进行操作",
+	BtnEnter:   "进入",
+	BtnBack:    "返回",
+	BtnRefresh: "刷新",
+	BtnQuit:    "退出",
+	BtnOk:      "确定",
+	BtnClose:   "关闭",
+	ExitRow:    "exit 退出",
+	HintNav:    "[↑↓/1-0] 选择  [Enter] 进入  [r] 刷新  [q] 退出",
+	HintModal:  "[←→/↑↓] 选择  [Enter] 确定  [Esc] 取消",
+	HintOutput: "[↑↓] 滚动  [Enter/q] 关闭",
 }
 
 var en = Strings{
@@ -614,25 +642,106 @@ var en = Strings{
 	Copied:     "copied",
 	Unlimited:  "unlimited",
 	Never:      "never",
+
+	Welcome1:   "Welcome to the 3m-ui terminal console",
+	Welcome2:   "Use the touchscreen or the arrow keys + Enter",
+	BtnEnter:   "Open",
+	BtnBack:    "Back",
+	BtnRefresh: "Refresh",
+	BtnQuit:    "Quit",
+	BtnOk:      "Ok",
+	BtnClose:   "Close",
+	ExitRow:    "exit",
+	HintNav:    "[up/down/1-0] select  [Enter] open  [r] refresh  [q] quit",
+	HintModal:  "[left/right/up/down] choose  [Enter] confirm  [Esc] cancel",
+	HintOutput: "[up/down] scroll  [Enter/q] close",
 }
 
-// pickStrings mirrors the shell menu's precedence: THREE_M_UI_LANG wins, then
-// the locale, and the project default is Chinese.
-func pickStrings() Strings {
+// pickStrings mirrors the shell menu's precedence exactly:
+//
+//	THREE_M_UI_LANG (explicit override, "auto" re-detects)
+//	  > menu.conf's saved "lang" key
+//	  > the locale (LC_ALL / LC_MESSAGES / LANG)
+//	  > Chinese
+//
+// The menu.conf step is the one that used to be missing here: an operator who
+// picked Chinese in the SSH menu had it saved to /etc/3m-ui/menu.conf, but the
+// console only looked at the environment, so a host whose distro ships
+// LANG=en_US.UTF-8 showed English while the menu right next to it was Chinese.
+func pickStrings(configDir string) Strings {
+	// Exact override wins, exactly like the shell menu.
 	switch os.Getenv("THREE_M_UI_LANG") {
 	case "zh":
 		return zh
 	case "en":
 		return en
 	}
+
+	// "auto" re-detects from the locale, but - again like the menu - still
+	// falls back to the saved value when detection comes up empty.
+	code := ""
+	if os.Getenv("THREE_M_UI_LANG") == "auto" {
+		code = detectLangCode()
+	}
+	if code == "" {
+		code = menuConfLang(configDir)
+	}
+	if code == "" {
+		code = detectLangCode()
+	}
+	switch code {
+	case "zh":
+		return zh
+	case "en":
+		return en
+	}
+	return zh
+}
+
+// detectLangCode mirrors the shell menu's detect_lang: it only recognises
+// Chinese and reports "unknown" for every other locale, which then falls
+// through to the project default. An English locale must NOT select English
+// here, or a host whose distro ships LANG=en_US.UTF-8 flips the console to
+// English while the menu next to it stays Chinese.
+func detectLangCode() string {
 	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
 		v := strings.ToLower(os.Getenv(key))
 		if strings.HasPrefix(v, "zh") {
-			return zh
-		}
-		if strings.HasPrefix(v, "en") {
-			return en
+			return "zh"
 		}
 	}
-	return zh
+	return ""
+}
+
+// menuConfLang reads the "lang" key out of the shell menu's settings file. The
+// file is plain `key=value` lines with optional comments and quotes; a missing
+// or unreadable file simply means "no saved preference".
+func menuConfLang(configDir string) string {
+	if configDir == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(configDir, "menu.conf"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if i := strings.Index(line, "#"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		val := strings.TrimSpace(line[eq+1:])
+		val = strings.Trim(val, "\"'")
+		if key == "lang" && (val == "zh" || val == "en") {
+			return val
+		}
+	}
+	return ""
 }

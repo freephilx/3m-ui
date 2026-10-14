@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"os"
+	"strconv"
 	"strings"
 
 	"golang.org/x/term"
@@ -22,12 +23,22 @@ const (
 	yellow      = "\033[33m"
 	cyan        = "\033[36m"
 	blue        = "\033[34m"
+	white       = "\033[37m"
+	bgRed       = "\033[41m"
 
 	clearHome  = "\033[H\033[2J"
 	enterAlt   = "\033[?1049h"
 	exitAlt    = "\033[?1049l"
-	hideCursor = "\033[?25l"
-	showCursor = "\033[?25h"
+	hideCursor = "\033[25l"
+	showCursor = "\033[25h"
+
+	// Mouse reporting: 1000 = button press/release tracking, 1006 = SGR
+	// extended coordinates - the only encoding that survives past column 223
+	// and the one every modern terminal agrees on. Both are announced on
+	// entry and withdrawn on exit, so the shell after `3m-ui tui` is clean.
+	// Touchscreens arrive here as plain left-button clicks.
+	enableMouse  = "\033[?1000h\033[?1006h"
+	disableMouse = "\033[?1000l\033[?1006l"
 )
 
 type KeyType int
@@ -38,13 +49,27 @@ const (
 	KeyDown
 	KeyLeft
 	KeyRight
+	KeyPgUp
+	KeyPgDn
 	KeyEnter
 	KeyEsc
+	KeyMouse
 )
 
+// MouseEvent is one decoded mouse report. X/Y are 1-based terminal columns and
+// rows; Button follows the xterm numbering (0 left, 1 middle, 2 right, 64
+// wheel up, 65 wheel down); Press distinguishes a press from a release, which
+// is what makes a click (press+release on the same spot) detectable.
+type MouseEvent struct {
+	X, Y   int
+	Button int
+	Press  bool
+}
+
 type Key struct {
-	Type KeyType
-	Rune rune
+	Type  KeyType
+	Rune  rune
+	Mouse MouseEvent
 }
 
 // KeyReader turns raw bytes into keys. Reading one byte at a time is enough:
@@ -81,6 +106,20 @@ func (kr *KeyReader) Read() (Key, error) {
 					return Key{Type: KeyRight}, nil
 				case 'D':
 					return Key{Type: KeyLeft}, nil
+				case '5':
+					// PgUp arrives as ESC [ 5 ~
+					_, _ = kr.r.ReadByte()
+					return Key{Type: KeyPgUp}, nil
+				case '6':
+					// PgDn arrives as ESC [ 6 ~
+					_, _ = kr.r.ReadByte()
+					return Key{Type: KeyPgDn}, nil
+				case '<':
+					// SGR mouse: ESC [ < b ; x ; y (M|m)
+					return kr.readSGRMouse()
+				case 'M':
+					// X10 mouse: ESC [ M + 3 raw bytes (coords + 32).
+					return kr.readX10Mouse()
 				}
 			}
 		}
@@ -89,8 +128,60 @@ func (kr *KeyReader) Read() (Key, error) {
 	return Key{Type: KeyRune, Rune: rune(b)}, nil
 }
 
+// readSGRMouse consumes "b;x;yM" (press) or "b;x;ym" (release) after the
+// "[<" prefix has been read. Modifier bits (shift/ctrl/meta) are masked off:
+// the console only ever cares about which button moved.
+func (kr *KeyReader) readSGRMouse() (Key, error) {
+	var buf []byte
+	for {
+		c, err := kr.r.ReadByte()
+		if err != nil {
+			return Key{}, err
+		}
+		if c == 'M' || c == 'm' {
+			parts := strings.SplitN(string(buf), ";", 3)
+			if len(parts) != 3 {
+				return Key{Type: KeyEsc}, nil
+			}
+			b, err1 := strconv.Atoi(parts[0])
+			x, err2 := strconv.Atoi(parts[1])
+			y, err3 := strconv.Atoi(parts[2])
+			if err1 != nil || err2 != nil || err3 != nil {
+				return Key{Type: KeyEsc}, nil
+			}
+			// Bits 0-1 select the button, bit 6/7 mark wheel events; keep
+			// the raw value so wheel scrolling is recognisable too.
+			return Key{Type: KeyMouse, Mouse: MouseEvent{
+				X: x, Y: y, Button: b, Press: c == 'M',
+			}}, nil
+		}
+		buf = append(buf, c)
+	}
+}
+
+// readX10Mouse decodes the legacy encoding: three bytes, each offset by 32.
+// Terminals that ignore mode 1006 fall back to this, so the console still
+// receives clicks instead of garbage keys.
+func (kr *KeyReader) readX10Mouse() (Key, error) {
+	raw := make([]byte, 3)
+	for i := range raw {
+		c, err := kr.r.ReadByte()
+		if err != nil {
+			return Key{}, err
+		}
+		raw[i] = c
+	}
+	b := int(raw[0]) - 32
+	return Key{Type: KeyMouse, Mouse: MouseEvent{
+		X:      int(raw[1]) - 32,
+		Y:      int(raw[2]) - 32,
+		Button: b & 3,
+		Press:  true, // X10 only ever reports presses
+	}}, nil
+}
+
 // isWide reports whether a rune takes two terminal columns (CJK, fullwidth
-// forms, emoji). Getting this right is what keeps the pane borders aligned.
+// forms, emoji). Getting this right is what keeps the frame borders aligned.
 func isWide(r rune) bool {
 	return (r >= 0x1100 && r <= 0x115F) ||
 		(r >= 0x2E80 && r <= 0x303E) ||

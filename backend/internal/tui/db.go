@@ -10,6 +10,26 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+// sensitiveSettingKey mirrors the panel API's filter (router.isSensitiveSettingKey):
+// keys that may carry credentials are never shown, whichever path filled the
+// map. Keeping a copy here avoids importing the router package for one switch.
+func sensitiveSettingKey(key string) bool {
+	k := strings.ToLower(strings.TrimSpace(key))
+	if k == "" {
+		return true
+	}
+	switch k {
+	case "telegram", "panel_ssl":
+		return true
+	}
+	for _, s := range []string{"token", "secret", "credential", "password", "private", "bot", "key", "auth"} {
+		if strings.Contains(k, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // openPanelDB opens the panel's own SQLite file.
 //
 // The console runs as a separate process next to the panel service, which

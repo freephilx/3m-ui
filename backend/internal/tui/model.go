@@ -50,6 +50,22 @@ type Row struct {
 	Options    []string
 	Run        func() (string, error)
 	Sub        func() []Row
+	// Icon is the emoji shown between the number and the label (main menu
+	// rows only); Rule renders a dim separator line instead of a numbered
+	// entry.
+	Icon string
+	Rule bool
+}
+
+// category is one entry of the main menu. The icon is the emoji shown left of
+// the number (like the reference shell menu); summary renders the small
+// right-aligned figure that gives the section at a glance ("2 users"), with an
+// optional colour for state-like values.
+type category struct {
+	title   string
+	icon    string
+	rows    func() []Row
+	summary func() (string, string)
 }
 
 type certInfo struct {

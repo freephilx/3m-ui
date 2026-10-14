@@ -8,13 +8,9 @@ import (
 	"time"
 
 	"github.com/kazeyukiro/3m-ui/backend/internal/buildinfo"
-	"github.com/kazeyukiro/3m-ui/backend/internal/cluster"
 	panelconfig "github.com/kazeyukiro/3m-ui/backend/internal/config"
 	"github.com/kazeyukiro/3m-ui/backend/internal/database/models"
 	"github.com/kazeyukiro/3m-ui/backend/internal/listener"
-	mhconfig "github.com/kazeyukiro/3m-ui/backend/internal/mihomo/config"
-	"github.com/kazeyukiro/3m-ui/backend/internal/protocol"
-	"github.com/kazeyukiro/3m-ui/backend/internal/telegram"
 	"github.com/kazeyukiro/3m-ui/backend/internal/user"
 	"gorm.io/gorm"
 )
@@ -80,7 +76,7 @@ func (c *Console) reloadConfig() error {
 	if len(c.listeners) == 0 {
 		return nil
 	}
-	return c.apiPost("/api/v1/listeners/" + strconv.FormatUint(uint64(c.listeners[0].ID), 10) + "/reload")
+	return c.apiPost("/api/v1/listeners/"+strconv.FormatUint(uint64(c.listeners[0].ID), 10)+"/reload", nil)
 }
 
 // --- dashboard (web UI: /) -------------------------------------------------
@@ -114,7 +110,9 @@ func (c *Console) dashboardRows() []Row {
 	if c.dbErr == nil {
 		active := 0
 		for _, u := range c.users {
-			if user.IsCredentialActive(u) {
+			// Blocked is the API's own !IsCredentialActive verdict, carried
+			// into SafeUser; the DB fallback computes the same value.
+			if !u.Blocked {
 				active++
 			}
 		}
@@ -185,21 +183,21 @@ func (c *Console) usersRows() []Row {
 	return rows
 }
 
-func (c *Console) userState(u models.ProxyUser) (string, string) {
+func (c *Console) userState(u user.SafeUser) (string, string) {
 	s := c.strings
 	if !u.Enabled {
 		return s.Disable, red
 	}
-	if !u.ExpireTime.IsZero() && time.Now().After(u.ExpireTime) {
-		return s.Expired, red
-	}
-	if u.TrafficLimit > 0 && u.TrafficUsed >= u.TrafficLimit {
+	// Blocked is the panel's own verdict (!IsCredentialActive): the credential
+	// expired or burned through its quota. Splitting the two cases keeps the
+	// reason visible, like the web UI's status column.
+	if u.Blocked {
+		if !u.ExpireTime.IsZero() && time.Now().After(u.ExpireTime) {
+			return s.Expired, red
+		}
 		return s.Failed, red
 	}
-	if user.IsCredentialActive(u) {
-		return s.Enable, green
-	}
-	return s.Unknown, yellow
+	return s.Enable, green
 }
 
 // ipLimitLabel renders the concurrent-IP cap, where zero means unlimited.
@@ -229,7 +227,7 @@ func (c *Console) userDetailByID(id uint) []Row {
 	return []Row{{Label: c.strings.NoUsers}}
 }
 
-func (c *Console) userDetail(u models.ProxyUser) []Row {
+func (c *Console) userDetail(u user.SafeUser) []Row {
 	s := c.strings
 	state, color := c.userState(u)
 	expire := s.Never
@@ -257,7 +255,7 @@ func (c *Console) userDetail(u models.ProxyUser) []Row {
 		{Label: s.IPLimit, Value: c.ipLimitLabel(u.IPLimit)},
 		{Label: s.SubToken, Value: token},
 		{Label: s.Remark, Value: u.Remark},
-		{Label: "—", Value: ""},
+		{Rule: true},
 		{
 			Label:   c.userToggleLabel(u),
 			Confirm: c.userToggleConfirm(u),
@@ -365,7 +363,7 @@ func (c *Console) listenerDetail(l models.Listener) []Row {
 		{Label: s.PublicHost, Value: host},
 		{Label: s.PublicPort, Value: port},
 		{Label: s.SNI, Value: l.AccessSNI},
-		{Label: "—", Value: ""},
+		{Rule: true},
 		{
 			Label:   c.listenerToggleLabel(l),
 			Confirm: c.listenerToggleConfirm(l),
@@ -406,7 +404,7 @@ func (c *Console) shareDetailByID(id uint) []Row {
 	return []Row{{Label: c.strings.NoUsers}}
 }
 
-func (c *Console) shareDetail(u models.ProxyUser) []Row {
+func (c *Console) shareDetail(u user.SafeUser) []Row {
 	s := c.strings
 	if u.SubToken == "" {
 		return []Row{{Label: s.NoSubToken, ValueColor: yellow}}
@@ -414,13 +412,13 @@ func (c *Console) shareDetail(u models.ProxyUser) []Row {
 	return []Row{
 		{Label: s.ShareTip, ValueColor: dim},
 		{Label: s.SubToken, Value: u.SubToken},
-		{Label: "—", Value: ""},
+		{Rule: true},
 		{Label: s.FmtMihomo, Value: c.subURL(u, "mihomo")},
 		{Label: s.FmtV2Ray, Value: c.subURL(u, "v2ray")},
 		{Label: s.FmtSingbox, Value: c.subURL(u, "singbox")},
 		{Label: s.FmtURI, Value: c.subURL(u, "uri")},
 		{Label: s.FmtHTML, Value: c.subURL(u, "html")},
-		{Label: "—", Value: ""},
+		{Rule: true},
 		{
 			Label:   s.ActRotateToken,
 			Confirm: s.ConfirmRotateToken,
@@ -432,7 +430,7 @@ func (c *Console) shareDetail(u models.ProxyUser) []Row {
 }
 
 // subURL builds a subscription link the same way the panel API does.
-func (c *Console) subURL(u models.ProxyUser, target string) string {
+func (c *Console) subURL(u user.SafeUser, target string) string {
 	return panelconfig.GetSubscriptionURL(c.cfg, nil, u.SubToken, target)
 }
 
@@ -459,10 +457,10 @@ func (c *Console) trafficRows() []Row {
 	if len(c.users) == 0 {
 		return append(rows, Row{Label: s.NoTraffic})
 	}
-	sorted := make([]models.ProxyUser, len(c.users))
+	sorted := make([]user.SafeUser, len(c.users))
 	copy(sorted, c.users)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].TrafficUsed > sorted[j].TrafficUsed })
-	rows = append(rows, Row{Label: "— " + s.Ranking + " —", ValueColor: dim})
+	rows = append(rows, Row{Label: s.Ranking, ValueColor: dim})
 	for _, u := range sorted {
 		u := u
 		rows = append(rows, Row{
@@ -529,7 +527,7 @@ func (c *Console) serverDetail(s models.RemoteServer) []Row {
 		{Label: st.LastCheck, Value: checked},
 		{Label: st.State, Value: c.onOff(s.Enabled)},
 		{Label: st.Remark, Value: s.Remark},
-		{Label: "— " + st.MirrorNodes + " —", ValueColor: dim},
+		{Label: st.MirrorNodes, ValueColor: dim},
 	}
 	mirrors := 0
 	for _, m := range c.mirrors {
@@ -553,12 +551,12 @@ func (c *Console) routingRows() []Row {
 	}
 	s := c.strings
 	rows := []Row{
-		{Label: "— " + s.ClientRules + " —", ValueColor: dim},
+		{Label: s.ClientRules, ValueColor: dim},
 		{Label: s.DNSMode + " / mode", Value: c.visual.Mode + " / " + c.dnsMode()},
 		{Label: s.Rules, Value: strconv.Itoa(len(c.visual.Rules))},
 		{Label: s.Groups, Value: strconv.Itoa(len(c.visual.Groups))},
 		{Label: s.Protocol + " proxies", Value: strconv.Itoa(len(c.visual.Proxies))},
-		{Label: "— " + s.ServerRules + " —", ValueColor: dim},
+		{Label: s.ServerRules, ValueColor: dim},
 		{Label: s.Rules, Value: strconv.Itoa(len(c.serverRt.Rules))},
 		{Label: s.Groups, Value: strconv.Itoa(len(c.serverRt.Groups))},
 		{Label: s.RuleProvider, Value: strconv.Itoa(len(c.serverRt.RuleProviders))},
@@ -621,17 +619,17 @@ func (c *Console) coreRows() []Row {
 	} else if c.coreFetched {
 		rows = append(rows, Row{Label: s.APIDown, ValueColor: yellow})
 	}
-	rows = append(rows, Row{Label: "—", Value: ""})
+	rows = append(rows, Row{Rule: true})
 	if c.active {
 		rows = append(rows,
 			Row{Label: s.ActCoreStart, Confirm: s.ConfirmCoreStart, Run: func() (string, error) {
-				return s.ActCoreStart, c.apiPost("/api/v1/mihomo/start")
+				return s.ActCoreStart, c.apiPost("/api/v1/mihomo/start", nil)
 			}},
 			Row{Label: s.ActCoreStop, Confirm: s.ConfirmCoreStop, Run: func() (string, error) {
-				return s.ActCoreStop, c.apiPost("/api/v1/mihomo/stop")
+				return s.ActCoreStop, c.apiPost("/api/v1/mihomo/stop", nil)
 			}},
 			Row{Label: s.ActCoreRestart, Confirm: s.ConfirmCoreRestart, Run: func() (string, error) {
-				return s.ActCoreRestart, c.apiPost("/api/v1/mihomo/restart")
+				return s.ActCoreRestart, c.apiPost("/api/v1/mihomo/restart", nil)
 			}},
 			Row{Label: s.CoreLogs, Run: func() (string, error) {
 				return "", c.showCoreLogs()
@@ -736,32 +734,35 @@ func (c *Console) settingsRows() []Row {
 		botColor = green
 	}
 	return []Row{
-		{Label: "— " + s.Telegram + " —", ValueColor: dim},
+		{Label: s.Telegram, ValueColor: dim},
 		{Label: s.TgBot, Value: bot, ValueColor: botColor},
 		{Label: s.TgChats, Value: events},
 		{Label: s.TgEnabled, Value: c.onOff(c.tg.Enabled)},
-		{Label: "— " + s.AccessProf + " —", ValueColor: dim},
+		{Label: s.AccessProf, ValueColor: dim},
 		{Label: s.PublicHost, Value: host},
 		{Label: s.PublicPort, Value: port},
 		{Label: s.SNI, Value: sni},
-		{Label: "— " + s.SubPage + " —", ValueColor: dim},
+		{Label: s.SubPage, ValueColor: dim},
 		{Label: s.ResetDay, Value: c.setting("traffic_reset_day")},
 		{Label: s.SubTitle, Value: c.setting("sub_title")},
 		{Label: s.SubEncrypt, Value: c.setting("sub_encrypt")},
 	}
 }
 
-// setting reads a key straight from the panel_settings table. Only
-// non-sensitive, informational keys are shown here.
+// setting reads a non-sensitive panel setting. The API path fills the map up
+// front (same payload the web UI reads); the database is only consulted when
+// the panel is down and the fallback loader did not get that far.
 func (c *Console) setting(key string) string {
-	if c.db == nil {
-		return c.strings.None
+	if v, ok := c.settings[key]; ok && v != "" {
+		return v
 	}
-	var row models.PanelSetting
-	if err := c.db.Where("key = ?", key).First(&row).Error; err != nil || row.Value == "" {
-		return c.strings.None
+	if c.db != nil {
+		var row models.PanelSetting
+		if err := c.db.Where("key = ?", key).First(&row).Error; err == nil && row.Value != "" {
+			return row.Value
+		}
 	}
-	return row.Value
+	return c.strings.None
 }
 
 // --- certs / system panes --------------------------------------------------
@@ -813,21 +814,21 @@ func (c *Console) systemRows() []Row {
 
 // --- user actions ----------------------------------------------------------
 
-func (c *Console) userToggleLabel(u models.ProxyUser) string {
+func (c *Console) userToggleLabel(u user.SafeUser) string {
 	if u.Enabled {
 		return c.strings.ActDisableUser
 	}
 	return c.strings.ActEnableUser
 }
 
-func (c *Console) userToggleConfirm(u models.ProxyUser) string {
+func (c *Console) userToggleConfirm(u user.SafeUser) string {
 	if u.Enabled {
 		return c.strings.ConfirmDisableUser
 	}
 	return ""
 }
 
-func (c *Console) userToggle(u models.ProxyUser) (string, error) {
+func (c *Console) userToggle(u user.SafeUser) (string, error) {
 	action := user.BatchEnable
 	label := c.strings.ActEnableUser
 	if u.Enabled {
@@ -916,6 +917,20 @@ func (c *Console) listenerToggle(l models.Listener) (string, error) {
 	}
 	return label, nil
 }
+
+// --- main menu summaries ----------------------------------------------------
+//
+// Each category can show a small right-aligned figure on the main menu row, so
+// the menu doubles as a status board without opening anything.
+
+func (c *Console) summaryDashboard() (string, string) {
+	s := c.strings
+	return fmt.Sprintf("%d %s · %d %s", len(c.users), s.CatUsers, len(c.listeners), s.CatListeners), ""
+}
+
+func (c *Console) coreSummary() (string, string) { return c.coreLabel(), c.coreColor() }
+
+func (c *Console) serviceSummary() (string, string) { return c.stateLabel(), c.stateColor() }
 
 // --- state labels ----------------------------------------------------------
 
@@ -1021,42 +1036,4 @@ func splitLines(s string) []string {
 		return nil
 	}
 	return strings.Split(s, "\n")
-}
-
-// --- data loading ---------------------------------------------------------
-
-// loadData refreshes everything the database-backed panes show. API-backed
-// state is fetched separately, on demand, so a stopped panel never makes the
-// console wait on timeouts.
-func (c *Console) loadData() {
-	c.users = nil
-	c.listeners = nil
-	c.servers = nil
-	c.mirrors = nil
-
-	if c.db == nil {
-		return
-	}
-	if rows, err := user.NewService(c.db).GetAll(); err == nil {
-		c.users = rows
-	}
-	if rows, err := listener.NewService(c.db, c.cfg.Mihomo.Config, nil).GetAll(); err == nil {
-		c.listeners = rows
-	}
-	if rows, err := cluster.NewService(c.db).List(); err == nil {
-		c.servers = rows
-	}
-	if rows, err := cluster.NewService(c.db).ListMirroredNodes(0); err == nil {
-		c.mirrors = rows
-	}
-	if v, err := mhconfig.GetVisualConfig(c.db); err == nil {
-		c.visual = v
-	}
-	if v, err := mhconfig.GetServerRouting(c.db); err == nil {
-		c.serverRt = v
-	}
-	if v, err := telegram.LoadSettings(c.db); err == nil {
-		c.tg = v
-	}
-	c.profile = protocol.LoadAccessProfile(c.db)
 }

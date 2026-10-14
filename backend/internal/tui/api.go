@@ -14,21 +14,51 @@ import (
 	"github.com/kazeyukiro/3m-ui/backend/internal/config"
 	"github.com/kazeyukiro/3m-ui/backend/internal/database/models"
 	"github.com/kazeyukiro/3m-ui/backend/internal/mihomo"
+	mhconfig "github.com/kazeyukiro/3m-ui/backend/internal/mihomo/config"
+	"github.com/kazeyukiro/3m-ui/backend/internal/subpage"
+	"github.com/kazeyukiro/3m-ui/backend/internal/telegram"
+	"github.com/kazeyukiro/3m-ui/backend/internal/user"
 	"gorm.io/gorm"
 )
 
 // --- panel HTTP API ---------------------------------------------------------
 //
-// Anything that lives in the panel process' memory - core PID, live rates,
-// log ring buffers, runtime socket state - cannot be read from a second
-// process. The console therefore talks to the panel's own API over loopback,
-// exactly like the web UI does, instead of rebuilding those subsystems (which
-// would report a stopped core and empty logs for a perfectly healthy panel).
+// The console reads the panel through the very same endpoints the web UI uses,
+// so both interfaces always agree: one state calculation, one definition of
+// "blocked", one traffic figure. Anything that only exists inside the panel
+// process - core PID, live rates, log ring buffers, listener runtime - has to
+// come this way anyway; rebuilding it in a second process is what reports a
+// stopped core and empty logs for a perfectly healthy panel.
 //
 // Authentication reuses the panel's own JWT secret to mint a short-lived admin
-// token, so no login prompt, password or rate limit is involved.
+// token, so there is no login prompt, no password and no rate limit involved.
+// The database is only a fallback for when the panel is stopped, or installed
+// somewhere this process cannot see (a container, a different mount namespace).
 
 const apiTimeout = 4 * time.Second
+
+func apiClient() *http.Client { return &http.Client{Timeout: apiTimeout} }
+
+// apiBase builds the loopback root of the panel API, honouring web_path and a
+// concrete bind address.
+func apiBase(cfg *config.Config, useTLS bool) string {
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	host := "127.0.0.1"
+	if listen := strings.TrimSpace(cfg.Server.Listen); listen != "" &&
+		listen != "0.0.0.0" && listen != "::" && listen != "*" {
+		// Bound to one address: loopback is not necessarily listening.
+		if strings.Contains(listen, ":") && !strings.HasPrefix(listen, "[") {
+			host = "[" + listen + "]"
+		} else {
+			host = listen
+		}
+	}
+	prefix := strings.TrimSuffix(strings.TrimSpace(cfg.Server.WebPath), "/")
+	return scheme + "://" + host + ":" + strconv.Itoa(cfg.Server.Port) + prefix
+}
 
 // panelToken mints an admin JWT straight from the panel's secret, skipping the
 // login endpoint. It has to honour session_version because the auth middleware
@@ -52,32 +82,32 @@ func panelToken(cfg *config.Config, db *gorm.DB) (string, error) {
 	return tok, err
 }
 
-// apiBase builds the loopback root of the panel API, honouring web_path and a
-// concrete bind address.
-func apiBase(cfg *config.Config, useTLS bool) string {
-	scheme := "http"
-	if useTLS {
-		scheme = "https"
+// ensureToken mints the admin token once per session.
+//
+// Reading the admin row needs the database, which is not always reachable from
+// the console. Since session_version defaults to 1 and only moves when the
+// admin password is rotated, we can still try to authenticate in that case
+// instead of showing an empty console - and if the guess is wrong the panel
+// simply answers 401, which the console reports rather than pretending the
+// panel has no data.
+func (c *Console) ensureToken() (string, error) {
+	if c.token != "" {
+		return c.token, nil
 	}
-	host := "127.0.0.1"
-	if listen := strings.TrimSpace(cfg.Server.Listen); listen != "" &&
-		listen != "0.0.0.0" && listen != "::" && listen != "*" {
-		// Bound to one address: loopback is not necessarily listening.
-		if strings.Contains(listen, ":") && !strings.HasPrefix(listen, "[") {
-			host = "[" + listen + "]"
-		} else {
-			host = listen
-		}
+	if tok, err := panelToken(c.cfg, c.db); err == nil {
+		c.token = tok
+		return tok, nil
 	}
-	prefix := strings.TrimSuffix(strings.TrimSpace(cfg.Server.WebPath), "/")
-	return scheme + "://" + host + ":" + strconv.Itoa(cfg.Server.Port) + prefix
-}
-
-// apiClient returns a loopback-only client. The panel may serve a self-signed
-// certificate, and the traffic is never left the machine, so verification is
-// relaxed on purpose rather than forcing operators to install their own cert.
-func apiClient() *http.Client {
-	return &http.Client{Timeout: apiTimeout}
+	if strings.TrimSpace(c.cfg.JWT.Secret) == "" {
+		return "", fmt.Errorf("JWT secret is not configured")
+	}
+	tok, _, err := auth.GenerateToken(c.cfg.JWT.Secret, 1, "admin", "admin", 1, 30*time.Minute)
+	if err != nil {
+		return "", err
+	}
+	c.token = tok
+	c.tokenGuessed = true
+	return tok, nil
 }
 
 type apiResult struct {
@@ -131,26 +161,19 @@ func (c *Console) apiGet(path string, out any) error {
 	return json.Unmarshal(res.body, out)
 }
 
-func (c *Console) apiPost(path string) error {
-	return c.apiCall(http.MethodPost, path, map[string]any{}).err
+func (c *Console) apiPost(path string, body any) error {
+	return c.apiCall(http.MethodPost, path, body).err
 }
 
-// ensureToken mints the admin token once per session.
-func (c *Console) ensureToken() (string, error) {
-	if c.token != "" {
-		return c.token, nil
-	}
-	tok, err := panelToken(c.cfg, c.db)
-	if err != nil {
-		return "", err
-	}
-	c.token = tok
-	return tok, nil
+func (c *Console) apiDelete(path string) error {
+	return c.apiCall(http.MethodDelete, path, nil).err
 }
 
-// --- typed helpers ----------------------------------------------------------
+// --- typed fetchers ---------------------------------------------------------
+//
+// Each fetcher mirrors the payload the web UI parses, so the console cannot
+// drift into its own idea of what a user or a listener looks like.
 
-// coreStatus mirrors mihomo.StatusResponse from GET /api/v1/mihomo/status.
 type coreStatus struct {
 	Running bool   `json:"running"`
 	Version string `json:"version"`
@@ -158,7 +181,6 @@ type coreStatus struct {
 	Uptime  string `json:"uptime"`
 }
 
-// trafficStatus mirrors traffic.Snapshot from GET /api/v1/traffic/status.
 type trafficStatus struct {
 	UploadBytes   int64 `json:"upload_bytes"`
 	DownloadBytes int64 `json:"download_bytes"`
@@ -167,10 +189,57 @@ type trafficStatus struct {
 	Connections   int   `json:"connections"`
 }
 
+type panelServerInfo struct {
+	Port       int    `json:"port"`
+	Listen     string `json:"listen"`
+	PublicURL  string `json:"public_url"`
+	ConfigPath string `json:"config_path"`
+}
+
 type logEntry struct {
 	Timestamp string `json:"timestamp"`
 	Level     string `json:"level"`
 	Payload   string `json:"payload"`
+}
+
+// fetchUsers pulls the same user list the web UI renders. SafeUser carries the
+// derived flags the raw table does not have (Blocked, for instance), which is
+// exactly the sort of thing a console that reads the database by hand gets
+// wrong or leaves out.
+func (c *Console) fetchUsers() ([]user.SafeUser, error) {
+	var rows []user.SafeUser
+	err := c.apiGet("/api/v1/users", &rows)
+	return rows, err
+}
+
+func (c *Console) fetchListeners() ([]models.Listener, error) {
+	var rows []models.Listener
+	err := c.apiGet("/api/v1/listeners", &rows)
+	return rows, err
+}
+
+func (c *Console) fetchRuntime() (map[uint]mihomo.ListenerRuntime, error) {
+	var rows []mihomo.ListenerRuntime
+	if err := c.apiGet("/api/v1/listeners/runtime-status", &rows); err != nil {
+		return nil, err
+	}
+	out := make(map[uint]mihomo.ListenerRuntime, len(rows))
+	for _, r := range rows {
+		out[r.ID] = r
+	}
+	return out, nil
+}
+
+func (c *Console) fetchServers() ([]models.RemoteServer, error) {
+	var rows []models.RemoteServer
+	err := c.apiGet("/api/v1/cluster", &rows)
+	return rows, err
+}
+
+func (c *Console) fetchMirrors() ([]models.RemoteNodeMirror, error) {
+	var rows []models.RemoteNodeMirror
+	err := c.apiGet("/api/v1/cluster/mirrored-nodes", &rows)
+	return rows, err
 }
 
 func (c *Console) fetchCoreStatus() (coreStatus, error) {
@@ -185,7 +254,42 @@ func (c *Console) fetchTrafficStatus() (trafficStatus, error) {
 	return st, err
 }
 
-// fetchPanelLogs returns the panel's in-memory log ring.
+func (c *Console) fetchServerRouting() (mhconfig.ServerRoutingConfig, error) {
+	var cfg mhconfig.ServerRoutingConfig
+	err := c.apiGet("/api/v1/config/server-routing", &cfg)
+	return cfg, err
+}
+
+func (c *Console) fetchVisual() (mhconfig.VisualConfig, error) {
+	var cfg mhconfig.VisualConfig
+	err := c.apiGet("/api/v1/config/visual", &cfg)
+	return cfg, err
+}
+
+func (c *Console) fetchPanelServer() (panelServerInfo, error) {
+	var info panelServerInfo
+	err := c.apiGet("/api/v1/system/panel-server", &info)
+	return info, err
+}
+
+func (c *Console) fetchPanelSettings() (map[string]string, error) {
+	settings := map[string]string{}
+	err := c.apiGet("/api/v1/panel-settings", &settings)
+	return settings, err
+}
+
+func (c *Console) fetchTelegram() (telegram.Settings, error) {
+	var s telegram.Settings
+	err := c.apiGet("/api/v1/telegram/settings", &s)
+	return s, err
+}
+
+func (c *Console) fetchSubPage() (subpage.Settings, error) {
+	var s subpage.Settings
+	err := c.apiGet("/api/v1/system/subscription-page", &s)
+	return s, err
+}
+
 func (c *Console) fetchPanelLogs() ([]string, error) {
 	var entries []logEntry
 	if err := c.apiGet("/api/v1/system/panel-logs", &entries); err != nil {
@@ -198,7 +302,6 @@ func (c *Console) fetchPanelLogs() ([]string, error) {
 	return out, nil
 }
 
-// fetchCoreLogs returns the core's log ring via the panel API.
 func (c *Console) fetchCoreLogs() ([]string, error) {
 	var entries []mihomo.LogResponse
 	if err := c.apiGet("/api/v1/mihomo/logs", &entries); err != nil {
@@ -208,20 +311,6 @@ func (c *Console) fetchCoreLogs() ([]string, error) {
 	for _, e := range entries {
 		out = append(out, fmt.Sprintf("%s %s %s",
 			e.Timestamp.Format("15:04:05"), e.Level, e.Payload))
-	}
-	return out, nil
-}
-
-// fetchRuntime returns per-listener runtime state. It needs the panel process:
-// the state is derived by scanning /proc for the core's PID.
-func (c *Console) fetchRuntime() (map[uint]mihomo.ListenerRuntime, error) {
-	var rows []mihomo.ListenerRuntime
-	if err := c.apiGet("/api/v1/nodes/runtime-status", &rows); err != nil {
-		return nil, err
-	}
-	out := make(map[uint]mihomo.ListenerRuntime, len(rows))
-	for _, r := range rows {
-		out[r.ID] = r
 	}
 	return out, nil
 }
