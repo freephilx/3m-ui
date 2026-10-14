@@ -103,6 +103,9 @@ func TestCPUCapacityBounded(t *testing.T) {
 // Numbers below mirror a real host: 4.4GB charged, 3.0GB of it inactive page
 // cache, against an 8GB cap → 51.7% gross but 16.2% actual.
 func TestMemoryFromCgroupDiscountsReclaimableCache(t *testing.T) {
+	// Untyped on purpose: cgroupMemory fields are float64. The int64() casts
+	// in the Fatalf calls below matter on 32-bit release arches (linux/386),
+	// where a bare 8GiB constant no longer fits a default int.
 	const (
 		usage        = 4_439_781_376
 		inactiveFile = 3_045_183_488
@@ -115,7 +118,7 @@ func TestMemoryFromCgroupDiscountsReclaimableCache(t *testing.T) {
 		t.Fatal("expected usable cgroup accounting")
 	}
 	if int64(got.Total) != limit {
-		t.Fatalf("total = %d, want the cgroup limit %d", int64(got.Total), limit)
+		t.Fatalf("total = %d, want the cgroup limit %d", int64(got.Total), int64(limit))
 	}
 	wantUsed := usage - inactiveFile
 	if int64(got.Used) != int64(wantUsed) {
@@ -146,19 +149,19 @@ func TestMemoryFromCgroupLimitResolution(t *testing.T) {
 	// here would make the bar track other tenants' activity.
 	got, ok := memoryFromCgroup(cgroupMemory{usage: usage, ok: true}, hostTotal)
 	if !ok || int64(got.Total) != hostTotal {
-		t.Fatalf("unlimited cgroup: got (total=%d, ok=%v), want total=%d", int64(got.Total), ok, hostTotal)
+		t.Fatalf("unlimited cgroup: got (total=%d, ok=%v), want total=%d", int64(got.Total), ok, int64(hostTotal))
 	}
 
 	// cgroup v1's PAGE_COUNTER_MAX sentinel is not a real cap either.
 	const pageCounterMax = 1 << 62
 	if got, ok := memoryFromCgroup(cgroupMemory{usage: usage, limit: pageCounterMax, ok: true}, hostTotal); !ok || int64(got.Total) != hostTotal {
-		t.Fatalf("PAGE_COUNTER_MAX: got (total=%d, ok=%v), want total=%d", int64(got.Total), ok, hostTotal)
+		t.Fatalf("PAGE_COUNTER_MAX: got (total=%d, ok=%v), want total=%d", int64(got.Total), ok, int64(hostTotal))
 	}
 
 	// A cap smaller than RAM is honoured.
 	const smallLimit = 4 << 30
 	if got, ok := memoryFromCgroup(cgroupMemory{usage: usage, limit: smallLimit, ok: true}, hostTotal); !ok || int64(got.Total) != smallLimit {
-		t.Fatalf("real cap: got (total=%d, ok=%v), want total=%d", int64(got.Total), ok, smallLimit)
+		t.Fatalf("real cap: got (total=%d, ok=%v), want total=%d", int64(got.Total), ok, int64(smallLimit))
 	}
 
 	// No accounting at all falls through to the caller's /proc/meminfo path.
