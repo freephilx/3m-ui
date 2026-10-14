@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/kazeyukiro/3m-ui/backend/internal/buildinfo"
 )
 
 const serviceName = "3m-ui"
@@ -35,15 +33,23 @@ func detectInit() initKind {
 	return initNone
 }
 
-// Row is one selectable line in the content pane. Action marks it as runnable;
-// Confirm carries the question a modal must ask before running it.
+// Row is one selectable line in the content pane.
+//
+//   - Value (plus ValueColor) is the right-aligned detail shown on the same
+//     line, e.g. a traffic figure or a state.
+//   - Sub opens another pane of rows, which is how a user's detail page is
+//     reached from the user list.
+//   - Run executes an action; Confirm asks first when the change is
+//     destructive or hard to undo.
+//   - Options turns the row into a choice dialog (used by autostart).
 type Row struct {
 	Label      string
 	Value      string
 	ValueColor string
-	Action     string
 	Confirm    string
 	Options    []string
+	Run        func() (string, error)
+	Sub        func() []Row
 }
 
 type certInfo struct {
@@ -150,84 +156,46 @@ func (c *Console) serviceLogs(maxLines int) (string, error) {
 	return "", errors.New("no journalctl and no panel log file")
 }
 
-// --- pane contents ---------------------------------------------------------
-
-func (c *Console) reload() {
-	c.active = c.serviceActive()
-	c.enabled = c.serviceEnabled()
-	c.certs = loadCerts(c.certDir)
-}
-
-func (c *Console) overviewRows() []Row {
+// serviceRows mirrors the classic shell menu's service section: the panel
+// unit is controlled through the init system, exactly like `3m-ui start`.
+func (c *Console) serviceRows() []Row {
 	s := c.strings
-	state := s.Running
-	color := green
-	if !c.active {
-		state = s.Stopped
-		color = red
-	}
-	listen := c.cfg.Server.Listen
-	if listen == "" {
-		listen = s.ListenAll
-	}
-	pub := c.cfg.Server.PublicURL
-	if pub == "" {
-		pub = s.None
-	}
 	boot := s.Disable
 	if c.enabled {
 		boot = s.Enable
 	}
 	return []Row{
-		{Label: s.Version, Value: buildinfo.Version},
-		{Label: "状态", Value: state, ValueColor: color},
-		{Label: s.Port, Value: strconv.Itoa(c.cfg.Server.Port)},
-		{Label: s.Listen, Value: listen},
-		{Label: s.PublicURL, Value: pub},
-		{Label: s.Autostart, Value: boot},
-		{Label: s.CertCount, Value: strconv.Itoa(len(c.certs))},
-	}
-}
-
-func (c *Console) serviceRows() []Row {
-	return []Row{
-		{Label: "启动", Action: "start", Confirm: c.strings.ConfirmStart},
-		{Label: "停止", Action: "stop", Confirm: c.strings.ConfirmStop},
-		{Label: "重启", Action: "restart", Confirm: c.strings.ConfirmRestart},
-		{Label: c.strings.ActBoot, Action: "boot", Options: []string{c.strings.Enable, c.strings.Disable}},
-		{Label: "查看日志", Action: "logs"},
-	}
-}
-
-func (c *Console) certRows() []Row {
-	s := c.strings
-	if len(c.certs) == 0 {
-		return []Row{{Label: s.NoCerts, Value: c.certDir}}
-	}
-	rows := make([]Row, 0, len(c.certs))
-	for _, cert := range c.certs {
-		days := cert.daysLeft()
-		color := green
-		if days < 0 {
-			color = red
-		} else if days <= 30 {
-			color = yellow
-		}
-		value := cert.Expiry.Format("2006-01-02")
-		if days < 0 {
-			value = s.Expired
-		}
-		rows = append(rows, Row{Label: cert.Name, Value: value, ValueColor: color})
-	}
-	return rows
-}
-
-func (c *Console) systemRows() []Row {
-	return []Row{
-		{Label: "版本", Value: buildinfo.Version},
-		{Label: "git commit", Value: buildinfo.GitCommit},
-		{Label: "构建时间", Value: buildinfo.BuildTime},
-		{Label: "配置文件", Value: c.configPath},
-		{Label: "数据库", Value: c.cfg.Database.Path},
+		{
+			Label:   s.ActStart,
+			Confirm: s.ConfirmStart,
+			Run: func() (string, error) {
+				return s.ActStart, c.runService("start")
+			},
+		},
+		{
+			Label:   s.ActStop,
+			Confirm: s.ConfirmStop,
+			Run: func() (string, error) {
+				return s.ActStop, c.runService("stop")
+			},
+		},
+		{
+			Label:   s.ActRestart,
+			Confirm: s.ConfirmRestart,
+			Run: func() (string, error) {
+				return s.ActRestart, c.runService("restart")
+			},
+		},
+		{
+			Label:   s.ActBoot,
+			Options: []string{s.Enable, s.Disable},
+			Value:   boot,
+		},
+		{
+			Label: s.ActLogs,
+			Run: func() (string, error) {
+				return "", c.showServiceLogs()
+			},
+		},
 	}
 }

@@ -2,6 +2,13 @@
 // (header + navigation sidebar + content pane + modal dialogs) drawn with plain
 // ANSI sequences. It deliberately avoids a full TUI framework so the panel
 // binary stays small - the only added module is golang.org/x/term.
+//
+// The console covers the same ground as the web UI: dashboard, listeners,
+// users, share links, traffic, cluster, routing, core, logs, config and
+// settings. Everything stored in the database is read directly (through a
+// read-only handle), while state that only exists inside the panel process -
+// core PID, live rates, log ring buffers, runtime sockets - is pulled from the
+// panel's own loopback API, the same way the web UI does it.
 package tui
 
 import (
@@ -13,6 +20,12 @@ import (
 
 	"github.com/kazeyukiro/3m-ui/backend/internal/buildinfo"
 	"github.com/kazeyukiro/3m-ui/backend/internal/config"
+	"github.com/kazeyukiro/3m-ui/backend/internal/database/models"
+	"github.com/kazeyukiro/3m-ui/backend/internal/mihomo"
+	mhconfig "github.com/kazeyukiro/3m-ui/backend/internal/mihomo/config"
+	"github.com/kazeyukiro/3m-ui/backend/internal/protocol"
+	"github.com/kazeyukiro/3m-ui/backend/internal/telegram"
+	"gorm.io/gorm"
 )
 
 type focusKind int
@@ -25,6 +38,19 @@ const (
 type category struct {
 	title string
 	rows  func() []Row
+}
+
+// view is one level of the content pane. Opening a row that carries a Sub
+// pushes another view on top, which is how a user's detail page or a
+// subscription list is reached from the list view.
+//
+// It keeps the row *builder* rather than the rows themselves: an action taken
+// from a detail page changes the record it describes, and a snapshot taken
+// when the page was opened would keep showing "disable" for a user that is
+// already disabled (and would act on the stale copy).
+type view struct {
+	title string
+	build func() []Row
 }
 
 type modalState struct {
@@ -49,6 +75,34 @@ type Console struct {
 	strings    Strings
 	init       initKind
 
+	// --- panel database (read-only for browsing) ---
+	db      *gorm.DB
+	dbErr   error
+	apiRoot string
+	apiOK   bool
+	token   string
+
+	// --- database-backed data ---
+	users     []models.ProxyUser
+	listeners []models.Listener
+	servers   []models.RemoteServer
+	mirrors   []models.RemoteNodeMirror
+	visual    mhconfig.VisualConfig
+	serverRt  mhconfig.ServerRoutingConfig
+	tg        telegram.Settings
+	profile   protocol.AccessProfile
+
+	// --- panel-process state, fetched on demand ---
+	coreSt         coreStatus
+	coreOK         bool
+	coreFetched    bool
+	trafficSt      trafficStatus
+	trafficOK      bool
+	trafficFetched bool
+	runtime        map[uint]mihomo.ListenerRuntime
+	runtimeOK      bool
+	runtimeFetched bool
+
 	active  bool
 	enabled bool
 	certs   []certInfo
@@ -57,6 +111,7 @@ type Console struct {
 	catIdx int
 	rowIdx int
 	focus  focusKind
+	stack  []view
 
 	modal   *modalState
 	output  *outputState
@@ -74,6 +129,43 @@ func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
 
 // plainWidth is the visible width of an already-coloured string.
 func plainWidth(s string) int { return dispWidth(stripANSI(s)) }
+
+// rows returns the rows of the pane currently on screen: the top of the
+// navigation stack, or the selected category when the stack is empty.
+func (c *Console) rows() []Row {
+	if len(c.stack) > 0 {
+		top := c.stack[len(c.stack)-1]
+		if top.build != nil {
+			return top.build()
+		}
+		return nil
+	}
+	if c.catIdx < 0 || c.catIdx >= len(c.cats) {
+		return nil
+	}
+	return c.cats[c.catIdx].rows()
+}
+
+// push opens a sub-view and puts the cursor on its first row.
+func (c *Console) push(v view) {
+	c.stack = append(c.stack, v)
+	c.rowIdx = 0
+	c.focus = focusContent
+	c.message = ""
+}
+
+// pop closes the current sub-view. It reports false when there was none, which
+// is the caller's cue to fall back to the sidebar (or to quit).
+func (c *Console) pop() bool {
+	if len(c.stack) == 0 {
+		return false
+	}
+	c.stack = c.stack[:len(c.stack)-1]
+	c.rowIdx = 0
+	c.focus = focusContent
+	c.message = ""
+	return true
+}
 
 // Run opens the console. It needs a real terminal and gives up with a clear
 // message when there is none, so it never scribbles escapes into a pipe.
@@ -101,12 +193,34 @@ func Run(cfg *config.Config, configPath string) error {
 		strings:    str,
 		init:       detectInit(),
 		focus:      focusNav,
+		apiRoot:    apiBase(cfg, false),
 	}
 	c.cats = []category{
-		{title: str.CatOverview, rows: c.overviewRows},
+		{title: str.CatDashboard, rows: c.dashboardRows},
+		{title: str.CatUsers, rows: c.usersRows},
+		{title: str.CatListeners, rows: c.listenersRows},
+		{title: str.CatShare, rows: c.shareRows},
+		{title: str.CatTraffic, rows: c.trafficRows},
+		{title: str.CatCluster, rows: c.clusterRows},
+		{title: str.CatRouting, rows: c.routingRows},
+		{title: str.CatCore, rows: c.coreRows},
+		{title: str.CatLogs, rows: c.logsRows},
+		{title: str.CatConfig, rows: c.configRows},
+		{title: str.CatSettings, rows: c.settingsRows},
 		{title: str.CatService, rows: c.serviceRows},
 		{title: str.CatCerts, rows: c.certRows},
 		{title: str.CatSystem, rows: c.systemRows},
+	}
+
+	// Browsing never needs to write, so the database stays open read-only for
+	// the whole session and cannot collide with the panel's own writes.
+	c.db, c.dbErr = openPanelDB(cfg.Database.Path, false)
+	if c.db != nil {
+		defer func() {
+			if sqlDB, e := c.db.DB(); e == nil {
+				_ = sqlDB.Close()
+			}
+		}()
 	}
 	c.reload()
 
@@ -122,39 +236,6 @@ func Run(cfg *config.Config, configPath string) error {
 	fmt.Print("\r\n")
 	fmt.Println(str.ExitMsg)
 	return nil
-}
-
-// versionTag renders the panel version for the header. Release builds embed
-// the git tag, which already carries the "v" prefix (the release workflow
-// passes vX.Y.Z), so blind-prefixing again rendered "vv1.3.5". Dev builds and
-// bare "1.3.5" values are normalised the other way.
-func versionTag() string {
-	v := buildinfo.Version
-	switch {
-	case v == "" || v == "dev":
-		return v
-	case strings.HasPrefix(v, "v"):
-		return v
-	default:
-		return "v" + v
-	}
-}
-
-// filepathJoin returns <dir of configPath>/name without importing path/filepath
-// twice - kept as a tiny helper so the cert dir follows the config location.
-func filepathJoin(configPath, name string) string {
-	i := strings.LastIndex(configPath, "/")
-	if i < 0 {
-		return name
-	}
-	return configPath[:i+1] + name
-}
-
-func (c *Console) rows() []Row {
-	if c.catIdx < 0 || c.catIdx >= len(c.cats) {
-		return nil
-	}
-	return c.cats[c.catIdx].rows()
 }
 
 // --- key handling ----------------------------------------------------------
@@ -192,19 +273,11 @@ func (c *Console) handle(k Key) {
 			c.activate()
 		}
 	case KeyEsc:
-		if c.focus == focusContent {
-			c.focus = focusNav
-		} else {
-			c.quit = true
-		}
+		c.goBack()
 	case KeyRune:
 		switch k.Rune {
 		case 'q', 'Q':
-			if c.focus == focusContent {
-				c.focus = focusNav
-			} else {
-				c.quit = true
-			}
+			c.goBack()
 		case 'j':
 			c.moveDown()
 		case 'k':
@@ -228,10 +301,22 @@ func (c *Console) handle(k Key) {
 	}
 }
 
+// goBack unwinds one level: an open sub-view first, then the content pane,
+// then the whole console.
+func (c *Console) goBack() {
+	if c.pop() {
+		return
+	}
+	if c.focus == focusContent {
+		c.focus = focusNav
+		return
+	}
+	c.quit = true
+}
+
 func (c *Console) moveUp() {
 	if c.focus == focusNav {
-		c.catIdx = (c.catIdx + len(c.cats) - 1) % len(c.cats)
-		c.rowIdx = 0
+		c.moveCategory(-1)
 		return
 	}
 	n := len(c.rows())
@@ -243,8 +328,7 @@ func (c *Console) moveUp() {
 
 func (c *Console) moveDown() {
 	if c.focus == focusNav {
-		c.catIdx = (c.catIdx + 1) % len(c.cats)
-		c.rowIdx = 0
+		c.moveCategory(1)
 		return
 	}
 	n := len(c.rows())
@@ -252,6 +336,19 @@ func (c *Console) moveDown() {
 		return
 	}
 	c.rowIdx = (c.rowIdx + 1) % n
+}
+
+// moveCategory switches the sidebar selection and closes any open sub-view, so
+// the pane always shows the category's own rows.
+func (c *Console) moveCategory(delta int) {
+	if len(c.cats) == 0 {
+		return
+	}
+	c.catIdx = (c.catIdx + delta + len(c.cats)) % len(c.cats)
+	c.rowIdx = 0
+	c.stack = nil
+	c.message = ""
+	c.fetchForCategory()
 }
 
 // jump selects a row by its 1-based number, like the classic menu.
@@ -297,15 +394,16 @@ func (c *Console) handleModal(k Key) {
 	}
 }
 
-// activate runs the highlighted row, opening a modal first when the row asks
-// for confirmation or offers options.
+// activate runs the highlighted row: open its sub-view, ask for a choice, or
+// execute its action (with a confirmation dialog when the row asks for one).
 func (c *Console) activate() {
 	rows := c.rows()
 	if c.rowIdx >= len(rows) {
 		return
 	}
 	row := rows[c.rowIdx]
-	if row.Action == "" {
+	if row.Sub != nil {
+		c.push(view{title: row.Label, build: row.Sub})
 		return
 	}
 	if len(row.Options) > 0 {
@@ -319,9 +417,12 @@ func (c *Console) activate() {
 				if i == 0 {
 					action = "enable"
 				}
-				c.runAndReport(action)
+				c.runAndReport(action, func() error { return c.runService(action) })
 			},
 		}
+		return
+	}
+	if row.Run == nil {
 		return
 	}
 	if row.Confirm != "" {
@@ -334,24 +435,37 @@ func (c *Console) activate() {
 				if i != 0 {
 					return
 				}
-				if row.Action == "logs" {
-					c.showLogs()
-					return
-				}
-				c.runAndReport(row.Action)
+				c.execRow(row)
 			},
 		}
 		return
 	}
-	if row.Action == "logs" {
-		c.showLogs()
-		return
-	}
-	c.runAndReport(row.Action)
+	c.execRow(row)
 }
 
-func (c *Console) runAndReport(action string) {
-	if err := c.runService(action); err != nil {
+// execRow runs a row's action and reports the outcome in the footer.
+func (c *Console) execRow(row Row) {
+	c.message = ""
+	if row.Run != nil {
+		label, err := row.Run()
+		if err != nil {
+			c.message = c.strings.Failed + ": " + err.Error()
+			c.msgClr = red
+		} else {
+			c.message = c.strings.Done
+			if label != "" {
+				c.message += ": " + label
+			}
+			c.msgClr = green
+		}
+	}
+	// The action may have changed what the pane shows (a user's state, a
+	// listener's toggle), so re-read before drawing again.
+	c.reload()
+}
+
+func (c *Console) runAndReport(action string, fn func() error) {
+	if err := fn(); err != nil {
 		c.message = c.strings.Failed + ": " + err.Error()
 		c.msgClr = red
 	} else {
@@ -361,15 +475,62 @@ func (c *Console) runAndReport(action string) {
 	c.reload()
 }
 
-func (c *Console) showLogs() {
-	out, err := c.serviceLogs(c.height - 10)
-	if err != nil {
-		c.message = c.strings.Failed + ": " + err.Error()
-		c.msgClr = red
+func (c *Console) showOutput(title string, lines []string) {
+	if len(lines) == 0 {
+		lines = []string{c.strings.NoLogs}
+	}
+	c.output = &outputState{title: title, lines: lines}
+}
+
+// --- data -----------------------------------------------------------------
+
+// reload refreshes service state, certificates and database-backed panes, and
+// drops every cached API response so the next frame re-reads live state.
+func (c *Console) reload() {
+	c.active = c.serviceActive()
+	c.enabled = c.serviceEnabled()
+	c.certs = loadCerts(c.certDir)
+	c.coreFetched, c.coreOK = false, false
+	c.trafficFetched, c.trafficOK = false, false
+	c.runtimeFetched, c.runtimeOK = false, false
+	c.runtime = nil
+	c.loadData()
+	c.fetchForCategory()
+}
+
+// fetchForCategory pulls the panel-process state the selected category needs.
+// Doing it per category (instead of up front) keeps the console responsive when
+// the service is down, because a stopped panel is never dialled at all.
+func (c *Console) fetchForCategory() {
+	if !c.active {
+		c.apiOK = false
 		return
 	}
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	c.output = &outputState{title: c.strings.LogsTitle, lines: lines}
+	switch {
+	case c.catIdx == c.catIndex(c.strings.CatCore), c.catIdx == c.catIndex(c.strings.CatDashboard):
+		st, err := c.fetchCoreStatus()
+		c.coreSt, c.coreFetched, c.coreOK = st, true, err == nil
+		c.apiOK = c.apiOK || err == nil
+	case c.catIdx == c.catIndex(c.strings.CatTraffic):
+		st, err := c.fetchTrafficStatus()
+		c.trafficSt, c.trafficFetched, c.trafficOK = st, true, err == nil
+		c.apiOK = c.apiOK || err == nil
+	case c.catIdx == c.catIndex(c.strings.CatListeners):
+		rt, err := c.fetchRuntime()
+		c.runtime, c.runtimeFetched, c.runtimeOK = rt, true, err == nil
+		c.apiOK = c.apiOK || err == nil
+	}
+}
+
+// catIndex resolves a category by title so the fetch switch above stays
+// readable when categories are reordered.
+func (c *Console) catIndex(title string) int {
+	for i, cat := range c.cats {
+		if cat.title == title {
+			return i
+		}
+	}
+	return -1
 }
 
 // --- rendering -------------------------------------------------------------
@@ -403,8 +564,7 @@ func (c *Console) render() string {
 	sb.WriteString(rowLR(paint(" "+c.strings.AppTitle, bold), right, w))
 	sb.WriteString("\r\n")
 
-	crumb := " 3m-ui / " + c.cats[c.catIdx].title
-	sb.WriteString(paint(crumb, dim))
+	sb.WriteString(paint(c.breadcrumb(), dim))
 	sb.WriteString("\r\n")
 
 	// Body ------------------------------------------------------------------
@@ -433,6 +593,19 @@ func (c *Console) render() string {
 	return sb.String()
 }
 
+// breadcrumb mirrors the web UI's header: panel / section / detail.
+func (c *Console) breadcrumb() string {
+	title := ""
+	if c.catIdx >= 0 && c.catIdx < len(c.cats) {
+		title = c.cats[c.catIdx].title
+	}
+	out := " 3m-ui / " + title
+	for _, v := range c.stack {
+		out += " / " + v.title
+	}
+	return out
+}
+
 func (c *Console) renderBody(w, bh int) []string {
 	sw := 12
 	sideW := sw + 2
@@ -448,10 +621,21 @@ func (c *Console) renderBody(w, bh int) []string {
 
 	// Navigation sidebar ----------------------------------------------------
 	// The box only wraps the categories (plus its two borders) instead of
-	// stretching down the whole screen with empty rows.
+	// stretching down the whole screen with empty rows. With more categories
+	// than fit on screen the box scrolls to keep the selection visible.
 	sh := len(c.cats) + 2
 	if bh < sh {
 		sh = bh
+	}
+	start := 0
+	if len(c.cats) > sh-2 {
+		start = c.catIdx - (sh-2)/2
+		if start < 0 {
+			start = 0
+		}
+		if start > len(c.cats)-(sh-2) {
+			start = len(c.cats) - (sh - 2)
+		}
 	}
 	side := make([]string, 0, bh)
 	side = append(side, boxTop(sw))
@@ -462,16 +646,18 @@ func (c *Console) renderBody(w, bh int) []string {
 	for len(side) < bh {
 		side = append(side, repeat(" ", sw+2))
 	}
-	for i, cat := range c.cats {
+	for i := 0; i+start < len(c.cats) && i < sh-2; i++ {
+		idx := i + start
 		if i+1 >= len(side) {
 			break
 		}
+		cat := c.cats[idx]
 		label := " " + truncate(cat.title, sw-1)
 		cell := padRight(label, sw)
 		switch {
-		case i == c.catIdx && c.focus == focusNav:
+		case idx == c.catIdx && c.focus == focusNav:
 			cell = paint(cell, rev)
-		case i == c.catIdx:
+		case idx == c.catIdx:
 			cell = paint(cell, cyan)
 		}
 		side[i+1] = "│" + cell + "│"
@@ -481,6 +667,9 @@ func (c *Console) renderBody(w, bh int) []string {
 	rows := c.rows()
 	content := make([]string, 0, bh)
 	title := c.cats[c.catIdx].title
+	if len(c.stack) > 0 {
+		title = c.stack[len(c.stack)-1].title
+	}
 	content = append(content, padRight(paint(truncate(" "+title, cw), bold+green), cw))
 	for i, row := range rows {
 		if len(content) >= bh {
@@ -601,4 +790,30 @@ func (c *Console) outputLines(w, bh int) []string {
 	}
 	lines = append(lines, boxBottom(inner))
 	return lines
+}
+
+// versionTag renders the panel version for the header. Release builds embed
+// the git tag, which already carries the "v" prefix (the release workflow
+// passes vX.Y.Z), so blind-prefixing again rendered "vv1.3.5". Dev builds and
+// bare "1.3.5" values are normalised the other way.
+func versionTag() string {
+	v := buildinfo.Version
+	switch {
+	case v == "" || v == "dev":
+		return v
+	case strings.HasPrefix(v, "v"):
+		return v
+	default:
+		return "v" + v
+	}
+}
+
+// filepathJoin returns <dir of configPath>/name without importing path/filepath
+// twice - kept as a tiny helper so the cert dir follows the config location.
+func filepathJoin(configPath, name string) string {
+	i := strings.LastIndex(configPath, "/")
+	if i < 0 {
+		return name
+	}
+	return configPath[:i+1] + name
 }
