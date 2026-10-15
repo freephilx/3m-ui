@@ -70,14 +70,6 @@ curl -fsSL https://raw.githubusercontent.com/kazeyukiro/3m-ui/main/scripts/insta
 管理命令   3m-ui
 ```
 
-终端控制中心（TUI）：
-
-```bash
-sudo 3m-ui tui
-```
-
-整屏控制台，覆盖 Web 面板的全部栏目：概览 / 用户 / 入站 / 分享 / 流量 / 集群 / 路由 / 内核 / 日志 / 配置 / 设置 / 服务 / 证书 / 系统。数据走面板自己的 HTTP API（与 Web 界面同源，面板停止时自动回落只读数据库）。支持键盘（方向键 / hjkl / 数字键 / 回车 / Esc）与鼠标或触屏（点击选择、再点同一行执行、滚轮翻页）；界面语言跟随 `3m-ui lang` 的设置（中 / 英）。需要真实终端（SSH 会话）；管道或 `TERM=dumb` 下会提示并退出，可改用 `3m-ui` 经典菜单或 Web 面板。
-
 更新：
 
 ```bash

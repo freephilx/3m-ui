@@ -47,7 +47,7 @@ func main() {
 				log.Fatalf("set config path: %v", err)
 			}
 			i++
-		case "reset-admin", "init", "healthcheck", "storage-paths", "reset-config", "tui":
+		case "reset-admin", "init", "healthcheck", "storage-paths", "reset-config":
 			cmd = args[i]
 		default:
 			if cmd == "" && !hasPrefixDash(args[i]) {
@@ -93,15 +93,6 @@ func main() {
 		return
 	}
 
-	if cmd == "tui" {
-		// The control center needs a real terminal; it reports a clear message
-		// and a non-zero exit instead of drawing escapes into a pipe.
-		if err := runTUI(configPath); err != nil {
-			fmt.Fprintln(os.Stderr, "3m-ui:", err)
-			os.Exit(1)
-		}
-		return
-	}
 	if cmd == "reset-admin" {
 		if err := runResetAdmin(configPath); err != nil {
 			log.Fatal(err)
