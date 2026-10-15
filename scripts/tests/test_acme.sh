@@ -314,6 +314,76 @@ else
     ok "key: no acme.sh invocation during discovery"
 fi
 
+# acme.sh builds the directory from the domain string verbatim, so the two
+# layouts cover every certificate type it can issue: wildcards keep the
+# leading "*." (also proves the paths stay glob-safe), IDN names keep their
+# UTF-8 form instead of punycode, and IP addresses are plain directory names.
+# All verified against acme.sh v3.1.7 with --create-domain-key / --issue.
+mkdir -p "$stub/*.example.com_ecc"
+: > "$stub/*.example.com_ecc/*.example.com.key"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path '*.example.com'" 2>&1)
+if [ "$got" = "$stub/*.example.com_ecc/*.example.com.key" ]; then
+    ok "key: wildcard cert (*.example.com)"
+else
+    no "key: wildcard cert (*.example.com)" "got: $got"
+fi
+rm -rf "$stub/*.example.com_ecc"
+
+mkdir -p "$stub/münchen.de_ecc"
+: > "$stub/münchen.de_ecc/münchen.de.key"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path 'münchen.de'" 2>&1)
+if [ "$got" = "$stub/münchen.de_ecc/münchen.de.key" ]; then
+    ok "key: IDN cert keeps the UTF-8 name"
+else
+    no "key: IDN cert keeps the UTF-8 name" "got: $got"
+fi
+rm -rf "$stub/münchen.de_ecc"
+
+mkdir -p "$stub/1.2.3.4_ecc"
+: > "$stub/1.2.3.4_ecc/1.2.3.4.key"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path 1.2.3.4" 2>&1)
+if [ "$got" = "$stub/1.2.3.4_ecc/1.2.3.4.key" ]; then
+    ok "key: IPv4 cert (default ECC)"
+else
+    no "key: IPv4 cert (default ECC)" "got: $got"
+fi
+rm -rf "$stub/1.2.3.4_ecc"
+
+mkdir -p "$stub/1.2.3.4"
+: > "$stub/1.2.3.4/1.2.3.4.key"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path 1.2.3.4" 2>&1)
+if [ "$got" = "$stub/1.2.3.4/1.2.3.4.key" ]; then
+    ok "key: IPv4 cert (RSA keylength)"
+else
+    no "key: IPv4 cert (RSA keylength)" "got: $got"
+fi
+rm -rf "$stub/1.2.3.4"
+
+# Colons are legal in Linux file names, and the path is always quoted.
+mkdir -p "$stub/2001:db8::1_ecc"
+: > "$stub/2001:db8::1_ecc/2001:db8::1.key"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path '2001:db8::1'" 2>&1)
+if [ "$got" = "$stub/2001:db8::1_ecc/2001:db8::1.key" ]; then
+    ok "key: IPv6 cert"
+else
+    no "key: IPv6 cert" "got: $got"
+fi
+rm -rf "$stub/2001:db8::1_ecc"
+
+# A domain can hold both an RSA and an ECC certificate. The RSA layout wins
+# here, which matches the order acme_cert_info uses for the certificate
+# itself, so the displayed key always belongs to the displayed certificate.
+mkdir -p "$stub/dual.example.com" "$stub/dual.example.com_ecc"
+: > "$stub/dual.example.com/dual.example.com.key"
+: > "$stub/dual.example.com_ecc/dual.example.com.key"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path dual.example.com" 2>&1)
+if [ "$got" = "$stub/dual.example.com/dual.example.com.key" ]; then
+    ok "key: RSA layout wins when both exist (matches cert lookup order)"
+else
+    no "key: RSA layout wins when both exist (matches cert lookup order)" "got: $got"
+fi
+rm -rf "$stub/dual.example.com" "$stub/dual.example.com_ecc"
+
 echo "== CA list sanity =="
 
 if grep -q 'buypass' "$target"; then
