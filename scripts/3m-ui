@@ -1734,11 +1734,13 @@ _acme_key_path() {
     [ -f "$key" ] && { printf '%s' "$key"; return 0; }
     ash=$(acme_bin) || return 1
     home=$(dirname "$ash")
-    key="$home/$dom/$dom.key"
-    [ -f "$key" ] && { printf '%s' "$key"; return 0; }
-    # acme.sh also keeps an issuer-specific copy
-    key=$("$ash" --list 2>/dev/null | awk -v d="$dom" '$1 == d { print $NF }')
-    [ -n "$key" ] && [ -f "$key" ] && { printf '%s' "$key"; return 0; }
+    # acme.sh keeps RSA certs in <domain>/ and ECC certs in <domain>_ecc/.
+    # Checking only <domain>/ loses the key for every ECC certificate, which
+    # is what acme.sh issues by default.
+    for d in "$home/$dom" "$home/${dom}_ecc"; do
+        key="$d/$dom.key"
+        [ -f "$key" ] && { printf '%s' "$key"; return 0; }
+    done
     return 1
 }
 

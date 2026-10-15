@@ -35,7 +35,9 @@ chmod +x "$stub/acme.sh"
 
 export ACME_HOME=$stub
 export ACME_LOG=$work/acme.log
-export CONFIG_DIR=$work/etc
+# The script derives CONFIG_DIR from ROOT (CONFIG_DIR="$ROOT/etc/3m-ui") and
+# overwrites any preset value, so redirect the tree via THREE_M_UI_ROOT.
+export THREE_M_UI_ROOT=$work/root
 export THREE_M_UI_LANG=zh
 : > "$ACME_LOG"
 
@@ -251,6 +253,66 @@ call 'example.com\n' 'acme_deploy example.com'
 expect "deploy: --install-cert" '--install-cert -d example.com'
 expect "deploy: --fullchain-file" '--fullchain-file'
 rmdir "$stub/example.com"
+
+echo "== private key discovery =="
+
+# _acme_key_path locates the key behind "view private key" in cert info.
+# acme.sh stores ECC certificates in <domain>_ecc/ and issues ECC by default,
+# so checking only <domain>/ left every default certificate without a key.
+mkdir -p "$stub/example.com_ecc"
+: > "$stub/example.com_ecc/example.com.key"
+: > "$ACME_LOG"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path example.com" 2>&1)
+if [ "$got" = "$stub/example.com_ecc/example.com.key" ]; then
+    ok "key: ECC cert key found in <domain>_ecc"
+else
+    no "key: ECC cert key found in <domain>_ecc" "got: $got"
+fi
+rm -rf "$stub/example.com_ecc"
+
+# RSA certificates keep the classic layout.
+mkdir -p "$stub/rsa.example.com"
+: > "$stub/rsa.example.com/rsa.example.com.key"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path rsa.example.com" 2>&1)
+if [ "$got" = "$stub/rsa.example.com/rsa.example.com.key" ]; then
+    ok "key: RSA cert key found in <domain>"
+else
+    no "key: RSA cert key found in <domain>" "got: $got"
+fi
+rm -rf "$stub/rsa.example.com"
+
+# When both layouts exist the ECC copy must not shadow the RSA one... but a
+# key deployed into the panel wins over both: it is the key actually in use.
+# CERT_DIR derives from THREE_M_UI_ROOT: $ROOT/etc/3m-ui/certs.
+certdir=$work/root/etc/3m-ui/certs
+mkdir -p "$stub/both.example.com" "$stub/both.example.com_ecc" "$certdir"
+: > "$stub/both.example.com/both.example.com.key"
+: > "$stub/both.example.com_ecc/both.example.com.key"
+: > "$certdir/both.example.com.key"
+got=$(bash -c ". $lib >/dev/null 2>&1; _acme_key_path both.example.com" 2>&1)
+if [ "$got" = "$certdir/both.example.com.key" ]; then
+    ok "key: deployed key in CERT_DIR wins"
+else
+    no "key: deployed key in CERT_DIR wins" "got: $got"
+fi
+rm -rf "$stub/both.example.com" "$stub/both.example.com_ecc" "$certdir"
+
+# No key anywhere must fail loudly rather than print a stale --list column.
+: > "$ACME_LOG"
+bash -c ". $lib >/dev/null 2>&1; _acme_key_path nowhere.example.com" >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+    ok "key: fails when no key exists"
+else
+    no "key: fails when no key exists" "returned success without a key file"
+fi
+
+# Discovery is filesystem-only: acme.sh itself must not be invoked, so a
+# missing key can never be papered over by a bogus --list fallback.
+if [ -s "$ACME_LOG" ]; then
+    no "key: no acme.sh invocation during discovery" "invoked with: $(cat "$ACME_LOG")"
+else
+    ok "key: no acme.sh invocation during discovery"
+fi
 
 echo "== CA list sanity =="
 
