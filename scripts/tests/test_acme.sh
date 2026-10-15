@@ -160,6 +160,31 @@ not_called "reject half-filled EAB (kid only)" '1\ny\n\nn\n\n\n\n\nn\n\nkid123\n
 not_called "cancel when domain is empty" '\n' 'acme_issue standalone'
 not_called "cancel when webroot is empty" '1\n\n' 'acme_issue webroot example.com'
 
+echo "== IP certificates (RFC 8738) =="
+
+# acme.sh issues an IP certificate by passing the address straight to -d
+# (wiki/ipcert), so http-01/tls-alpn-01 modes must accept it as-is.
+: > "$ACME_LOG"
+call '1\ny\n\nn\n\n\n\n\nn\n\n\n\n' 'acme_issue standalone 1.2.3.4'
+expect "IP: -d keeps the address" '--issue -d 1.2.3.4 --standalone'
+
+: > "$ACME_LOG"
+call '1\n/var/www/html\nn\n\n\n\n\nn\n\n\n' 'acme_issue webroot 203.0.113.7'
+expect "IP: webroot accepts it too" '--issue -d 203.0.113.7 --webroot'
+
+: > "$ACME_LOG"
+call '1\n8443\nn\n\n\n\n\nn\n\n\n' 'acme_issue alpn 2001:db8::1'
+expect "IP: IPv6 over TLS-ALPN" '--issue -d 2001:db8::1 --alpn'
+
+# DNS-01 cannot validate an IP identifier; refuse before asking for API keys.
+not_called "IP: DNS validation refused (IPv4)" '1\n' 'acme_issue dns 1.2.3.4'
+not_called "IP: DNS validation refused (IPv6)" '1\n' 'acme_issue dns 2001:db8::1'
+
+# A hostname keeps working.
+: > "$ACME_LOG"
+call '1\ndns_cf\nn\n\n\n\n\nn\n\n\n' 'acme_issue dns example.com'
+expect "domain: DNS still allowed" '--issue -d example.com --dns dns_cf'
+
 echo "== certificate management =="
 
 : > "$ACME_LOG"

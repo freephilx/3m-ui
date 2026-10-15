@@ -211,7 +211,8 @@ _t_zh() {
         i_subpath)        printf '%s' 'sub_path (订阅路径前缀)' ;;
         i_subport)        printf '%s' 'sub_port (0=与面板同端口)' ;;
         i_listen)         printf '%s' 'listen (空=全部接口)' ;;
-        i_domain)         printf '%s' '域名 (例 example.com)' ;;
+        i_domain)         printf '%s' '域名或 IP 地址（例 example.com 或 1.2.3.4）' ;;
+        ip_no_dns)        printf '%s' 'IP 证书不能用 DNS 方式验证（RFC 8738 只允许 http-01 与 tls-alpn-01），请改用 standalone / webroot / nginx / apache / TLS-ALPN' ;;
         i_email)          printf '%s' '邮箱 (可空)' ;;
         i_version)        printf '%s' '输入版本号 (如 v1.1.1，回车取消)' ;;
         i_cur)            printf '%s' '现' ;;
@@ -474,7 +475,8 @@ _t_en() {
         i_subpath)        printf '%s' 'sub_path (subscription path prefix)' ;;
         i_subport)        printf '%s' 'sub_port (0=same as panel)' ;;
         i_listen)         printf '%s' 'listen (empty=all interfaces)' ;;
-        i_domain)         printf '%s' 'Domain (e.g. example.com)' ;;
+        i_domain)         printf '%s' 'Domain or IP address (e.g. example.com or 1.2.3.4)' ;;
+        ip_no_dns)        printf '%s' 'An IP certificate cannot be validated over DNS (RFC 8738 allows only http-01 and tls-alpn-01); use standalone / webroot / nginx / apache / TLS-ALPN instead' ;;
         i_email)          printf '%s' 'Email (optional)' ;;
         i_version)        printf '%s' 'Version (e.g. v1.1.1, Enter to cancel)' ;;
         i_cur)            printf '%s' 'current' ;;
@@ -1528,6 +1530,19 @@ acme_ca_menu() {
     esac
 }
 
+# Is this an IP identifier rather than a domain? acme.sh issues IP
+# certificates by passing the address straight to -d (wiki/ipcert), but
+# RFC 8738 forbids validating them over DNS: only http-01 and tls-alpn-01
+# apply. IPv6 always contains a colon; IPv4 is dot-separated digits only.
+_is_ip_addr() {
+    case "$1" in
+        *:*) return 0 ;;
+        *[!0-9.]*) return 1 ;;
+        *.*.*.*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Issue a certificate. MODE is one of the validation methods documented in
 # wiki/How-to-issue-a-cert: standalone | webroot | nginx | apache | alpn | dns.
 # Every flag below comes from wiki/Options-and-Params, and the free-form ones
@@ -1574,6 +1589,12 @@ acme_issue() {
             esac
             ;;
         dns)
+            if _is_ip_addr "$dom"; then
+                # Refuse here: acme.sh would only fail much later, after the
+                # DNS API credentials were already entered.
+                err "$(t ip_no_dns)"
+                return 1
+            fi
             say "$(t acme_dns_hint)"
             say "$(t acme_dns_api_hint)"
             dapi=$(ui_input acme_dns_api 'dns_cf')
