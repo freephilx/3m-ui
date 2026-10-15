@@ -13,7 +13,7 @@
 
 Hafif ve self-hosted. Linux üzerinde [Mihomo](https://github.com/MetaCubeX/mihomo) dinleyicileri, kullanıcılar, abonelikler ve durumu yönetin.
 
-[![License](https://img.shields.io/badge/license-EPL--2.0-blue.svg)](../../LICENSE)
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-88x31.png)](../../LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > Belgeler: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
@@ -93,6 +93,6 @@ Katkıda bulunanlar: [Contributors](https://github.com/kazeyukiro/3m-ui/graphs/c
 
 ## Lisans
 
-[Eclipse Public License 2.0](../../LICENSE)
+[GNU General Public License v3.0](../../LICENSE)
 
 Üçüncü taraf bildirimleri: [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).

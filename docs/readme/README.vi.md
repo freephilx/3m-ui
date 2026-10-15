@@ -13,7 +13,7 @@
 
 Nhẹ, tự lưu trữ. Quản lý listener, người dùng, subscription và trạng thái [Mihomo](https://github.com/MetaCubeX/mihomo) trên Linux.
 
-[![License](https://img.shields.io/badge/license-EPL--2.0-blue.svg)](../../LICENSE)
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-88x31.png)](../../LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > Tài liệu: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
@@ -93,6 +93,6 @@ Người đóng góp: [Contributors](https://github.com/kazeyukiro/3m-ui/graphs/
 
 ## Giấy phép
 
-[Eclipse Public License 2.0](../../LICENSE)
+[GNU General Public License v3.0](../../LICENSE)
 
 Thành phần bên thứ ba: [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).

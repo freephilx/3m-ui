@@ -1,7 +1,7 @@
 #!/bin/sh
 # 3m-ui unified management entrypoint (/usr/local/bin/3m-ui).
 # Application binary: /usr/local/lib/3m-ui/3m-ui-bin
-# Original work for 3m-ui (EPL-2.0). Ideas inspired by common panel ops menus;
+# Original work for 3m-ui (GPL-3.0). Ideas inspired by common panel ops menus;
 # not a derivative of any third-party management script source.
 #
 # UI layer (added): POSIX-sh ANSI menu with automatic fallback to the classic
@@ -1255,10 +1255,10 @@ open_firewall() {
 }
 
 # --- acme.sh integration -----------------------------------------------------
-# acme.sh is GPL-3.0; 3m-ui is EPL-2.0. Those licences are incompatible, so
-# acme.sh is deliberately NOT vendored here. It is installed as an external
-# tool and this menu only drives it — which is also the upstream-blessed way
-# to use it. Nothing below embeds any acme.sh code.
+# acme.sh is installed and maintained as an independent external tool, and this
+# menu only drives it — which is also the upstream-blessed way to use it.
+# Nothing below embeds or vendors any acme.sh code, so neither project's license
+# extends to the other's code.
 
 acme_bin() {
     # print the path of an installed acme.sh, or return 1

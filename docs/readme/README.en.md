@@ -12,7 +12,7 @@
 
 Lightweight and self-hosted. Manage [Mihomo](https://github.com/MetaCubeX/mihomo) listeners, users, subscriptions, and runtime status on Linux.
 
-[![License](https://img.shields.io/badge/license-EPL--2.0-blue.svg)](../../LICENSE)
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-88x31.png)](../../LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > Documentation: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
@@ -122,7 +122,7 @@ Contributors: [Contributors](https://github.com/kazeyukiro/3m-ui/graphs/contribu
 
 ## License
 
-[Eclipse Public License 2.0](../../LICENSE)
+[GNU General Public License v3.0](../../LICENSE)
 
 Third-party notices: [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).
 
