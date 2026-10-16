@@ -13,7 +13,7 @@
 हल्का, स्व-होस्टेड। Linux पर [Mihomo](https://github.com/MetaCubeX/mihomo) listeners, उपयोगकर्ता, सब्सक्रिप्शन और स्थिति प्रबंधित करें।
 
 [![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
-[![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
+<a href="../../backend/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod" alt="Go" height="60"></a>
 
 > दस्तावेज़: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
 
