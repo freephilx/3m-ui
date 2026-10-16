@@ -12,8 +12,7 @@
 
 Легка self-hosted панель. Керуйте listeners, користувачами, підписками та станом [Mihomo](https://github.com/MetaCubeX/mihomo) на Linux.
 
-[![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
-[![Go](../assets/go-badge.svg)](../../backend/go.mod)
+[![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > Документація: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
 
@@ -91,6 +90,8 @@ cd ../backend && CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags=
 </a>
 
 ## Ліцензія
+
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
 
 From commit `226c460` onward this project is licensed under the **GNU General Public License v3.0**. Earlier commits and any already published releases remain under the **Eclipse Public License 2.0 (EPL-2.0)**, which cannot be revoked.
 
