@@ -13,7 +13,7 @@
 Leichtgewichtig und selbst gehostet. Verwalten Sie [Mihomo](https://github.com/MetaCubeX/mihomo)-Listener, Benutzer, Abonnements und Laufzeitstatus unter Linux.
 
 [![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
-<a href="../../backend/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod" alt="Go" height="60"></a>
+[![Go](../assets/go-badge.svg)](../../backend/go.mod)
 
 > Dokumentation: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
 

@@ -13,7 +13,7 @@
 가벼운 셀프호스팅 패널. Linux에서 [Mihomo](https://github.com/MetaCubeX/mihomo) 리스너·사용자·구독·상태를 관리합니다.
 
 [![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
-<a href="../../backend/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod" alt="Go" height="60"></a>
+[![Go](../assets/go-badge.svg)](../../backend/go.mod)
 
 > 문서: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
 
