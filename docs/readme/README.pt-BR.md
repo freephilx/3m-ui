@@ -6,14 +6,13 @@
 
 > Languages / 语言: [README](../../README.md) · [English](./README.en.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Español](./README.es.md) · [Français](./README.fr.md) · [Deutsch](./README.de.md) · [Русский](./README.ru.md) · **Português (Brasil)** · [Tiếng Việt](./README.vi.md) · [Bahasa Indonesia](./README.id.md) · [ไทย](./README.th.md) · [Türkçe](./README.tr.md) · [العربية](./README.ar.md) · [हिन्दी](./README.hi.md) · [Polski](./README.pl.md) · [Українська](./README.uk.md)
 
-
 **Painel web de gerenciamento para servidor Mihomo**
 
 > **Estável primeiro:** instalação e atualização usam releases formais por padrão.
 
 Leve e auto-hospedado. Gerencie listeners, usuários, assinaturas e status do [Mihomo](https://github.com/MetaCubeX/mihomo) no Linux.
 
-[![License: GPL v3](https://www.gnu.org/graphics/gplv3-88x31.png)](../../LICENSE)
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > Documentação: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
@@ -92,6 +91,8 @@ Contribuidores: [Contributors](https://github.com/kazeyukiro/3m-ui/graphs/contri
 </a>
 
 ## Licença
+
+From commit `226c460` onward this project is licensed under the **GNU General Public License v3.0**. Earlier commits and any already published releases remain under the **Eclipse Public License 2.0 (EPL-2.0)**, which cannot be revoked.
 
 [GNU General Public License v3.0](../../LICENSE)
 

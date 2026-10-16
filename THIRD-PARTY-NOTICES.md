@@ -2,6 +2,8 @@
 
 3m-ui is licensed under the GNU General Public License, version 3 (GPL-3.0).
 
+3m-ui was relicensed from the Eclipse Public License 2.0 (EPL-2.0) to GPL-3.0: from commit `226c460` onward it is under GPL-3.0, while earlier commits and any already published releases remain under EPL-2.0, which cannot be revoked.
+
 This repository and its release artifacts may include, download, invoke, or distribute third-party software that is subject to its own license terms. A third-party component's license is not changed by the license of 3m-ui.
 
 ## Mihomo Core

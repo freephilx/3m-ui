@@ -6,14 +6,13 @@
 
 > Languages / 语言: [README](../../README.md) · [English](./README.en.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Español](./README.es.md) · [Français](./README.fr.md) · [Deutsch](./README.de.md) · [Русский](./README.ru.md) · [Português (Brasil)](./README.pt-BR.md) · [Tiếng Việt](./README.vi.md) · [Bahasa Indonesia](./README.id.md) · [ไทย](./README.th.md) · [Türkçe](./README.tr.md) · [العربية](./README.ar.md) · **हिन्दी** · [Polski](./README.pl.md) · [Українська](./README.uk.md)
 
-
 **Mihomo सर्वर के लिए वेब प्रबंधन पैनल**
 
 > **पहले स्थिर रिलीज़:** इंस्टॉल/अपडेट डिफ़ॉल्ट रूप से औपचारिक रिलीज़ उपयोग करते हैं।
 
 हल्का, स्व-होस्टेड। Linux पर [Mihomo](https://github.com/MetaCubeX/mihomo) listeners, उपयोगकर्ता, सब्सक्रिप्शन और स्थिति प्रबंधित करें।
 
-[![License: GPL v3](https://www.gnu.org/graphics/gplv3-88x31.png)](../../LICENSE)
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > दस्तावेज़: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
@@ -92,6 +91,8 @@ cd ../backend && CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags=
 </a>
 
 ## लाइसेंस
+
+From commit `226c460` onward this project is licensed under the **GNU General Public License v3.0**. Earlier commits and any already published releases remain under the **Eclipse Public License 2.0 (EPL-2.0)**, which cannot be revoked.
 
 [GNU General Public License v3.0](../../LICENSE)
 

@@ -12,7 +12,7 @@
 
 轻量、自托管，用于在 Linux 上管理 [Mihomo](https://github.com/MetaCubeX/mihomo) Listener、用户、订阅与运行状态。
 
-[![License: GPL v3](https://www.gnu.org/graphics/gplv3-88x31.png)](../../LICENSE)
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > 文档: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
@@ -121,6 +121,8 @@ cd ../backend && CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags=
 </a>
 
 ## 许可证
+
+本项目自 commit `226c460` 之后采用 **GNU General Public License v3.0**。此前的提交与已发布版本仍受 **Eclipse Public License 2.0（EPL-2.0）** 约束，该授权不可撤回。
 
 [GNU General Public License v3.0](../../LICENSE)
 

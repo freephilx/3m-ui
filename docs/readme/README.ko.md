@@ -6,14 +6,13 @@
 
 > Languages / 语言: [README](../../README.md) · [English](./README.en.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · **한국어** · [Español](./README.es.md) · [Français](./README.fr.md) · [Deutsch](./README.de.md) · [Русский](./README.ru.md) · [Português (Brasil)](./README.pt-BR.md) · [Tiếng Việt](./README.vi.md) · [Bahasa Indonesia](./README.id.md) · [ไทย](./README.th.md) · [Türkçe](./README.tr.md) · [العربية](./README.ar.md) · [हिन्दी](./README.hi.md) · [Polski](./README.pl.md) · [Українська](./README.uk.md)
 
-
 **Mihomo 서버 웹 관리 패널**
 
 > **안정판 우선:** 기본 설치/업데이트는 정식 Release만 사용합니다. 사전 배포는 명시적 선택. [설치 문서](https://3m-ui.top/docs/install.html).
 
 가벼운 셀프호스팅 패널. Linux에서 [Mihomo](https://github.com/MetaCubeX/mihomo) 리스너·사용자·구독·상태를 관리합니다.
 
-[![License: GPL v3](https://www.gnu.org/graphics/gplv3-88x31.png)](../../LICENSE)
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > 문서: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
@@ -92,6 +91,8 @@ cd ../backend && CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags=
 </a>
 
 ## 라이선스
+
+From commit `226c460` onward this project is licensed under the **GNU General Public License v3.0**. Earlier commits and any already published releases remain under the **Eclipse Public License 2.0 (EPL-2.0)**, which cannot be revoked.
 
 [GNU General Public License v3.0](../../LICENSE)
 

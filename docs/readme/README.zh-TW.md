@@ -6,14 +6,13 @@
 
 > Languages / 语言: [README](../../README.md) · [English](./README.en.md) · [简体中文](./README.zh-CN.md) · **繁體中文** · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Español](./README.es.md) · [Français](./README.fr.md) · [Deutsch](./README.de.md) · [Русский](./README.ru.md) · [Português (Brasil)](./README.pt-BR.md) · [Tiếng Việt](./README.vi.md) · [Bahasa Indonesia](./README.id.md) · [ไทย](./README.th.md) · [Türkçe](./README.tr.md) · [العربية](./README.ar.md) · [हिन्दी](./README.hi.md) · [Polski](./README.pl.md) · [Українська](./README.uk.md)
 
-
 **Mihomo 服務端 Web 管理面板**
 
 > **穩定版優先：** 預設安裝與更新僅使用正式 Release。預發布需主動選擇。完整安裝包及 Docker 映像包含固定版本 Mihomo；詳見 [安裝文件](https://3m-ui.top/docs/install.html)。
 
 輕量、自託管，用於在 Linux 上管理 [Mihomo](https://github.com/MetaCubeX/mihomo) Listener、使用者、訂閱與執行狀態。
 
-[![License: GPL v3](https://www.gnu.org/graphics/gplv3-88x31.png)](../../LICENSE)
+[![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
 
 > 文件: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
@@ -92,6 +91,8 @@ cd ../backend && CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags=
 </a>
 
 ## 授權
+
+本專案自 commit `226c460` 之後採用 **GNU General Public License v3.0**。此前的提交與已發布版本仍受 **Eclipse Public License 2.0（EPL-2.0）** 約束，該授權不可撤回。
 
 [GNU General Public License v3.0](../../LICENSE)
 
