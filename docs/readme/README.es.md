@@ -4,76 +4,206 @@
   <img src="../../frontend/public/logo.png" alt="3m-ui logo" width="160" />
 </p>
 
-> Languages / 语言: [README](../../README.md) · [English](./README.en.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · **Español** · [Français](./README.fr.md) · [Deutsch](./README.de.md) · [Русский](./README.ru.md) · [Português (Brasil)](./README.pt-BR.md) · [Tiếng Việt](./README.vi.md) · [Bahasa Indonesia](./README.id.md) · [ไทย](./README.th.md) · [Türkçe](./README.tr.md) · [العربية](./README.ar.md) · [हिन्दी](./README.hi.md) · [Polski](./README.pl.md) · [Українська](./README.uk.md)
+> Idiomas / 语言: [README](../../README.md) · [English](./README.en.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · **Español** · [Français](./README.fr.md) · [Deutsch](./README.de.md) · [Русский](./README.ru.md) · [Português (Brasil)](./README.pt-BR.md) · [Tiếng Việt](./README.vi.md) · [Bahasa Indonesia](./README.id.md) · [ไทย](./README.th.md) · [Türkçe](./README.tr.md) · [العربية](./README.ar.md) · [हिन्दी](./README.hi.md) · [Polski](./README.pl.md) · [Українська](./README.uk.md)
 
-**Panel web de administración para servidores Mihomo**
+**Panel web de administración para el servidor Mihomo**
 
-> **Estable primero:** instalación y actualización usan releases formales por defecto. Las pre-releases requieren elección explícita.
+> **Primero la versión estable:** la instalación y la actualización usan por defecto únicamente releases oficiales. Las pre-releases deben elegirse explícitamente. Los paquetes de instalación completos y las imágenes Docker incluyen una versión fija de Mihomo; consulte [Instalación, actualización y restauración](https://3m-ui.top/guide/install).
 
-Ligero y autoalojado. Gestiona listeners, usuarios, suscripciones y estado de [Mihomo](https://github.com/MetaCubeX/mihomo) en Linux.
+Ligero y autoalojado, para gestionar Listener, usuarios, suscripciones y el estado de ejecución de [Mihomo](https://github.com/MetaCubeX/mihomo) en Linux.
 
 [![Go](https://img.shields.io/github/go-mod/go-version/kazeyukiro/3m-ui?filename=backend%2Fgo.mod)](../../backend/go.mod)
-
-> Documentación: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · [Website](https://3m-ui.top/)
+<a href="https://linux.do" alt="LINUX DO">
+      <img src="https://img.shields.io/badge/LINUX-DO-FFB003.svg?logo=data:image/svg%2bxml;base64,DQo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiPjxwYXRoIGQ9Ik00Ni44Mi0uMDU1aDYuMjVxMjMuOTY5IDIuMDYyIDM4IDIxLjQyNmM1LjI1OCA3LjY3NiA4LjIxNSAxNi4xNTYgOC44NzUgMjUuNDV2Ni4yNXEtMi4wNjQgMjMuOTY4LTIxLjQzIDM4LTExLjUxMiA3Ljg4NS0yNS40NDUgOC44NzRoLTYuMjVxLTIzLjk3LTIuMDY0LTM4LjAwNC0yMS40M1EuOTcxIDY3LjA1Ni0uMDU0IDUzLjE4di02LjQ3M0MxLjM2MiAzMC43ODEgOC41MDMgMTguMTQ4IDIxLjM3IDguODE3IDI5LjA0NyAzLjU2MiAzNy41MjcuNjA0IDQ2LjgyMS0uMDU2IiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZWNlY2VjO2ZpbGwtb3BhY2l0eToxIi8+PHBhdGggZD0iTTQ3LjI2NiAyLjk1N3EyMi41My0uNjUgMzcuNzc3IDE1LjczOGE0OS43IDQ5LjcgMCAwIDEgNi44NjcgMTAuMTU3cS00MS45NjQuMjIyLTgzLjkzIDAgOS43NS0xOC42MTYgMzAuMDI0LTI0LjM4N2E2MSA2MSAwIDAgMSA5LjI2Mi0xLjUwOCIgc3R5bGU9InN0cm9rZTpub25lO2ZpbGwtcnVsZTpldmVub2RkO2ZpbGw6IzE5MTkxOTtmaWxsLW9wYWNpdHk6MSIvPjxwYXRoIGQ9Ik03Ljk4IDcwLjkyNmMyNy45NzctLjAzNSA1NS45NTQgMCA4My45My4xMTNRODMuNDI2IDg3LjQ3MyA2Ni4xMyA5NC4wODZxLTE4LjgxIDYuNTQ0LTM2LjgzMi0xLjg5OC0xNC4yMDMtNy4wOS0yMS4zMTctMjEuMjYyIiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZjlhZjAwO2ZpbGwtb3BhY2l0eToxIi8+PC9zdmc+" />
+    </a>
+> Documentación: [https://3m-ui.top/docs/](https://3m-ui.top/docs/) · Sitio web: [https://3m-ui.top/](https://3m-ui.top/)
 
 ---
 
 ## Funciones
 
-| Área | Capacidades |
+| Categoría | Capacidades |
 |------|------|
-| **Nodos** | Protocol-registry listeners (VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC / AnyTLS / Snell / ShadowQUIC, …); REALITY target scan; TLS self-signed certs; transport field validation |
-| **Usuarios** | Bind nodes, traffic limits, expiry, IP limits, batch ops, subscription tokens |
-| **Suscripciones** | UA routing for Clash/Mihomo YAML, v2ray Base64, sing-box JSON; optional `?target=`; HTML info page |
-| **Configuración** | Generate → validate → apply; rollback previous `config.yaml` on failure |
-| **Operaciones** | Core start/stop/update, logs, dashboard metrics, Geo files, panel SSL/ACME, backup/restore, Cloudflare WARP register (YAML) |
-| **Telegram** | Alerts and bot commands (token + chat IDs) |
-| **Clúster** | Register remote panels, health checks, node mirror sync, merged subscriptions |
+| **Nodos** | Listener basados en un registro de protocolos: VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC / AnyTLS / Snell / ShadowQUIC, etc.; Reality, TLS autofirmado, certificados por lotes en un clic, **multiplicador de tráfico**, validación de campos de transporte mutuamente excluyentes |
+| **Usuarios** | **Creación en un clic** (nombre de usuario/contraseña/UUID aleatorios, opcionalmente vinculando todos los nodos), vinculación de nodos, límite de tráfico, **medición por nodo** (facturación = real × multiplicador del nodo), vencimiento, límites de IP / descarga de suscripción, inicio desde el primer uso, renovación/restablecimiento por ciclo, etiquetas de grupo, fusión de suscripciones externas, operaciones por lotes, Token de suscripción |
+| **Suscripciones** | Detección automática por UA de Clash/Mihomo YAML, v2ray Base64 (`?target=v2ray` siempre Base64), sing-box JSON; `?target=` opcional; página de suscripción HTML; los enlaces de uso compartido de TUIC/HY2 incluyen SNI/`allow_insecure` y otros parámetros de cliente |
+| **Configuración** | Generar → validar → aplicar, pasos separados; reversión a la anterior `config.yaml` en caso de fallo |
+| **Telegram** | Alertas y comandos de administración (requiere Token + Chat ID) |
+| **Multi-servidor** | Registro de paneles remotos, comprobación de estado, sincronización de nodos espejo, fusión de suscripciones; **push de nodos locales por nombre** hacia los remotos (desactivado por defecto, se puede renombrar/cambiar puerto) |
+| **Seguridad** | JWT, cambio de contraseña en el primer inicio de sesión, verificación en dos pasos TOTP, **GitHub OAuth** opcional, prefijo de ruta web_path, cifrado de credenciales, CORS |
+| **Operación** | Inicio/parada/actualización del núcleo, Geo, SSL/ACME del panel (incluidos comodines DNS-01), copia de seguridad, registro de **Cloudflare WARP** en un clic (WireGuard/MASQUE YAML) |
+
+### Notas adicionales (límites de usuario / certificados / suscripciones)
+
+- [Límites de usuario: IP · descargas de suscripción](https://3m-ui.top/guide/users-limits)
+- [Tráfico por nodo y multiplicador](https://3m-ui.top/guide/node-traffic)
+- [SSL / ACME del panel (HTTP-01, comodín DNS-01)](https://3m-ui.top/guide/ssl-cert)
+- [Aplicar certificados de nodo por lotes](https://3m-ui.top/guide/batch-certificate)
+- [Formatos de suscripción y target](https://3m-ui.top/guide/subscription-formats)
+- [Nodos multi-servidor / push](https://3m-ui.top/guide/cluster)
+- [Enrutamiento (suscripción de cliente + salida de servidor)](https://3m-ui.top/guide/routing)
+- [Cloudflare WARP](https://3m-ui.top/guide/warp)
+
+Frontend: **React + Ant Design + Lucide Icons** (`frontend/`), que tras la compilación se incrusta en un único binario de Go.
+
+Artefactos de release: **vinculación totalmente estática** (`CGO_ENABLED=0` + modernc SQLite), sin necesidad de `libsqlite3` del sistema, compatible con glibc / musl.
+
+Paquete de instalación completo / Docker: `linux/amd64` · `arm64`. El binario de panel independiente avanzado admite además `armv7` · `armv6` · `386` · `riscv64` · `loong64` · `ppc64le` · `s390x`; debe preparar por su cuenta un kernel compatible.
 
 ---
 
-## Instalación
+## Instalación rápida
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kazeyukiro/3m-ui/main/scripts/install.sh | sudo sh
 ```
 
-Tras instalar, actualizar con:
+La instalación completa admite Linux amd64 / arm64 e instala automáticamente el panel, el Mihomo correspondiente y el servicio del sistema. La configuración inicial y la contraseña de administrador las genera el programa de forma uniforme; si la configuración ya existe, se conservan los valores. Para otras arquitecturas se pueden usar el binario independiente y un kernel preparado por su cuenta, consulte [instrucciones detalladas de instalación](https://3m-ui.top/guide/install).
 
-```bash
-sudo 3m-ui update
-# sudo 3m-ui update v1.0.2
+Tras la instalación:
+
+```text
+面板地址   http://SERVER_IP:8080/
+默认账号   admin
+初始密码   安装时随机生成并显示一次，首次登录必须修改
+管理命令   3m-ui
 ```
 
-Panel por defecto: `http://SERVER_IP:8080/` — usuario `admin`, contraseña aleatoria de un solo uso (**cámbiela en el primer inicio**).
+Actualización:
+
+```bash
+# 推荐（已安装后）
+sudo 3m-ui update
+# 指定版本: sudo 3m-ui update v1.0.6
+# 从旧安装脚本迁移时，先重新执行上面的最新安装命令，配置和账号会保留。
+```
+
+Desinstalación:
+
+```bash
+sudo 3m-ui uninstall
+```
+
+### Instalación con prompt de IA
+
+Copie el prompt en un asistente como ChatGPT / Claude / Cursor e indique su sistema (p. ej. Ubuntu 22.04) y si ya dispone de SSH root. El asistente solo debe ayudar a ejecutar el script oficial y no reescribirlo en comandos de origen desconocido. El prompt completo y las notas de uso están en la [documentación del prompt de instalación con IA](../ai-install-prompt.md).
+
+No hace falta copiar manualmente un texto largo: cargue el prompt en texto plano directamente al portapapeles con `curl` y péguelo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kazeyukiro/3m-ui/main/docs/ai-install-prompt.en.txt | pbcopy        # macOS
+curl -fsSL https://raw.githubusercontent.com/kazeyukiro/3m-ui/main/docs/ai-install-prompt.en.txt | xclip -sel clip # Linux X11
+curl -fsSL https://raw.githubusercontent.com/kazeyukiro/3m-ui/main/docs/ai-install-prompt.en.txt | wl-copy       # Linux Wayland
+```
+
+El prompt solo guía hacia el script oficial de una línea siguiente; todas las descargas se verifican con `SHA256SUMS`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kazeyukiro/3m-ui/main/scripts/install.sh | sudo sh
+```
+
+El canal de prueba / pre-release (opcional, no predeterminado) está en la [documentación de instalación](../installation.md#ai-提示词安装).
 
 ---
 
-## Compilar desde el código
+## Instalación con Docker
+
+En un VPS Linux, descargue el archivo `docker-compose.yml` de la release y ejecute en el mismo directorio:
 
 ```bash
-cd frontend && npm install && npm run build
-cp -r dist ../backend/cmd/server/web/dist
-cd ../backend && CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags='-s -w' -o ../3m-ui ./cmd/server
+docker compose up -d
+docker compose logs 3m-ui
 ```
 
-Binarios estáticos en [Releases](https://github.com/kazeyukiro/3m-ui/releases).
+La imagen es `ghcr.io/kazeyukiro/3m-ui:latest` e incluye el panel y una versión fija de Mihomo; `latest` solo sigue las versiones estables. La configuración, las claves aleatorias y el administrador se inicializan automáticamente; la contraseña inicial se muestra una sola vez en el primer arranque. Por defecto se usa la red host; tras añadir nodos, abra los puertos TCP/UDP realmente utilizados. También se ofrece `docker-compose.bridge.yml`, junto con instrucciones sobre fijación de versión, configuración de certificados y restauración persistente, consulte [documentación de instalación](https://3m-ui.top/guide/install).
+
+---
+
+## Compilar desde el código fuente
+
+```bash
+# 前端
+cd frontend && npm install && npm run build
+
+# 嵌入并编译后端（示例 amd64）
+rm -rf backend/cmd/server/web/dist
+cp -r frontend/dist backend/cmd/server/web/dist
+cd backend
+CGO_ENABLED=0 go build -tags sqlite_modernc -trimpath -ldflags='-s -w' -o ../3m-ui ./cmd/server
+```
+
+Debe tener instalado localmente un binario **Mihomo** compatible y apuntar a su ruta en la configuración.
+
+---
+
+## Puntos de configuración
+
+Los datos y la configuración por defecto se encuentran aproximadamente en:
+
+| Ruta | Uso |
+|------|------|
+| `/etc/3m-ui/config.yaml` | Configuración del panel |
+| `/var/lib/3m-ui/3m-ui.db` | SQLite |
+| `/var/lib/3m-ui/listener-certs/` | Certificados autofirmados de nodos (**haga copia de seguridad junto con la base de datos**) |
+| `/var/lib/3m-ui/mihomo/` | Directorio de trabajo de Mihomo y `config.yaml` |
+
+Use valores aleatorios independientes (≥ 32 bytes) para las claves de JWT y credenciales; no use los ejemplos de la documentación.
+
+Puerto de panel personalizado: `3m-ui config port <port>` o edite la configuración y reinicie el servicio.
+
+Los nodos nuevos rellenan por defecto un puerto de escucha aleatorio entre 10000 y 60000 (muestreo ligero que evita los puertos de nodos ya cargados; se admiten rangos descendentes); se puede modificar manualmente o pulsar «随机端口».
+
+---
+
+## Diagrama de arquitectura
+
+```text
+  Browser (Ant Design + Lucide)
+        │  REST + JWT
+        ▼
+  Gin API  ── Telegram Bot
+        │
+   Service layer (users / listeners / sub / cluster / …)
+        │
+   SQLite · certstore · visual config
+        │
+        ▼
+     Mihomo (-t 校验 → 应用 / 回滚)
+```
+
+---
+
+## Recomendaciones de copia de seguridad
+
+Haga copia de seguridad al menos de:
+
+1. `3m-ui.db`
+2. `listener-certs/`
+3. El `config.yaml` del panel y el directorio de configuración de Mihomo
+
+Al actualizar solo el binario, los certificados se hydrate desde el disco en la medida de lo posible; si el directorio se pierde, se vuelven a autofirmar y los clientes deben volver a descargar la suscripción.
 
 ---
 
 ## Agradecimientos
 
-- [Mihomo](https://github.com/MetaCubeX/mihomo) — core engine and listener model
-- [acme.sh](https://github.com/acmesh-official/acme.sh) — Emisión, implementación y renovación de certificados en el menú SSH
-- [clashmeta-inbound](https://github.com/Tychristine/clashmeta-inbound/) — listener examples
-- [3x-ui](https://github.com/MHSanaei/3x-ui) / [s-ui](https://github.com/alireza0/s-ui) — panel UX inspiration
-- [Gin](https://github.com/gin-gonic/gin), [GORM](https://github.com/go-gorm/gorm), [React](https://github.com/facebook/react), [Ant Design](https://github.com/ant-design/ant-design)
-- [Lucide](https://github.com/lucide-icons/lucide) — icons (`lucide-react`)
-- [AIsouler/MyClash](https://github.com/AIsouler/MyClash) — Mihomo routing config / lite rule ideas
-- [echs-top/proxy](https://github.com/echs-top/proxy) — Mihomo rules and proxy-group schemes
-- [YiXuanZX/rules](https://github.com/YiXuanZX/rules) — Rule sets and mihomo routing templates
-- [Zustand](https://github.com/pmndrs/zustand), [golang-jwt/jwt](https://github.com/golang-jwt/jwt)
-- Go, Node.js, and the open-source community
+Agradecimiento especial a los siguientes proyectos de código abierto y comunidades:
+
+- [Mihomo](https://github.com/MetaCubeX/mihomo) — motor proxy principal y modelo de configuración de Listener
+- [acme.sh](https://github.com/acmesh-official/acme.sh) — solicitud, despliegue y renovación de certificados en el menú SSH
+- [clashmeta-inbound](https://github.com/Tychristine/clashmeta-inbound/) — ejemplos de configuración de Listener y referencia de protocolos
+- [3x-ui](https://github.com/MHSanaei/3x-ui) / [s-ui](https://github.com/alireza0/s-ui) — referencia de interacción del panel e ideas de operación
+- [Gin](https://github.com/gin-gonic/gin) — framework HTTP del backend
+- [GORM](https://github.com/go-gorm/gorm) — ORM de base de datos
+- [React](https://github.com/facebook/react) — base del frontend
+- [Ant Design](https://github.com/ant-design/ant-design) — componentes de UI
+- [Lucide](https://github.com/lucide-icons/lucide) — iconos (`lucide-react`, adaptado mediante `frontend/src/icons.tsx`)
+- [AIsouler/MyClash](https://github.com/AIsouler/MyClash) — referencia de configuración de enrutamiento de Mihomo e ideas de reglas ligeras
+- [echs-top/proxy](https://github.com/echs-top/proxy) — referencia de reglas de Mihomo y esquemas de grupos de proxies
+- [YiXuanZX/rules](https://github.com/YiXuanZX/rules) — referencia de conjuntos de reglas y plantillas de enrutamiento mihomo
+- [Zustand](https://github.com/pmndrs/zustand) — gestión de estado del frontend
+- [golang-jwt/jwt](https://github.com/golang-jwt/jwt) — JWT
+- Go, Node.js y toda la comunidad de código abierto
 
 Colaboradores: [Contributors](https://github.com/kazeyukiro/3m-ui/graphs/contributors)
 
@@ -93,8 +223,16 @@ Colaboradores: [Contributors](https://github.com/kazeyukiro/3m-ui/graphs/contrib
 
 [![License: GPL v3](https://www.gnu.org/graphics/gplv3-rounded-red-180x60.jpg)](../../LICENSE)
 
-From commit `226c460` onward this project is licensed under the **GNU General Public License v3.0**. Earlier commits and any already published releases remain under the **Eclipse Public License 2.0 (EPL-2.0)**, which cannot be revoked.
+A partir del commit `226c460`, este proyecto adopta la **GNU General Public License v3.0**. Los commits anteriores y las versiones ya publicadas siguen sujetos a la **Eclipse Public License 2.0 (EPL-2.0)**, licencia que no puede revocarse.
 
 [GNU General Public License v3.0](../../LICENSE)
 
-Avisos de terceros: [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).
+Componentes de terceros: [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).
+
+---
+
+---
+
+## English & other languages
+
+Traducciones completas (18 idiomas): consulte los enlaces de idioma de la parte superior o abra [README.en.md](./README.en.md).
