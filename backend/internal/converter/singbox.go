@@ -285,9 +285,14 @@ func mihomoProxyToSingbox(p map[string]interface{}) (map[string]interface{}, str
 		ob["method"] = p["cipher"]
 		ob["password"] = p["password"]
 		if plugin, ok := p["plugin"].(string); ok && plugin != "" {
-			ob["plugin"] = plugin
-			if po, ok := p["plugin-opts"]; ok {
-				ob["plugin_opts"] = po
+			// sing-box 官方文档 (shadowsocks outbound)：plugin 仅支持
+			// obfs-local / v2ray-plugin，且 plugin_opts 是 ";" 连接的字符串，
+			// 不是 Clash 风格的 map。
+			if sbPlugin, sbOpts := singboxPluginAndOpts(plugin, p["plugin-opts"]); sbPlugin != "" {
+				ob["plugin"] = sbPlugin
+				if sbOpts != "" {
+					ob["plugin_opts"] = sbOpts
+				}
 			}
 		}
 	case "vmess":
@@ -331,19 +336,13 @@ func mihomoProxyToSingbox(p map[string]interface{}) (map[string]interface{}, str
 			}
 		}
 	case "tuic":
-		// v4: token; v5: uuid + password
-		if rawToken, ok := p["token"]; ok && rawToken != nil {
-			tokens := normalizeStringList(rawToken)
-			if len(tokens) > 0 {
-				// sing-box's TUIC outbound v4 mode is token-only. Writing
-				// uuid/password as duplicates of the token confuses strict
-				// parsers (P3) — only set them for genuine v5 users below.
-				ob["token"] = tokens
-			}
+		// sing-box 官方文档 (tuic outbound)：仅有 uuid/password 等字段，
+		// 没有 token——v4 token 认证的节点 sing-box 无法使用，跳过导出。
+		uuid, _ := p["uuid"].(string)
+		if strings.TrimSpace(uuid) == "" {
+			return nil, ""
 		}
-		if uuid, ok := p["uuid"].(string); ok && strings.TrimSpace(uuid) != "" {
-			ob["uuid"] = strings.TrimSpace(uuid)
-		}
+		ob["uuid"] = strings.TrimSpace(uuid)
 		if pass, ok := p["password"].(string); ok && strings.TrimSpace(pass) != "" {
 			ob["password"] = strings.TrimSpace(pass)
 		}
@@ -361,23 +360,26 @@ func mihomoProxyToSingbox(p map[string]interface{}) (map[string]interface{}, str
 	case "anytls":
 		ob["password"] = p["password"]
 	case "snell":
-		// sing-box has a native snell outbound (1:1 field mapping).
+		// sing-box 官方文档 (snell outbound, 1.14.0+)：扁平字段
+		// obfs_mode ("none"/"http") / obfs_host，不是 obfs 对象；
+		// v6 使用 mode 字段（面板暂只导 v4 HTTP 混淆）。
 		if psk := firstString(p["psk"], p["password"]); psk != "" {
 			ob["psk"] = psk
 		}
 		if v, ok := p["version"]; ok {
-			ob["version"] = toInt(v)
-		}
-		if obfsOpts, ok := p["obfs-opts"].(map[string]interface{}); ok && len(obfsOpts) > 0 {
-			obfs := map[string]interface{}{}
-			if mode, ok := obfsOpts["mode"]; ok {
-				obfs["mode"] = mode
-			}
-			if host, ok := obfsOpts["host"]; ok {
-				obfs["host"] = host
-			}
-			if len(obfs) > 0 {
-				ob["obfs"] = obfs
+			ver := toInt(v)
+			ob["version"] = ver
+			if ver == 6 {
+				if mode, _ := p["obfs-opts"].(map[string]interface{})["mode"].(string); mode != "" {
+					ob["mode"] = mode
+				}
+			} else if obfsOpts, ok := p["obfs-opts"].(map[string]interface{}); ok && len(obfsOpts) > 0 {
+				if mode, ok := obfsOpts["mode"].(string); ok && mode != "" {
+					ob["obfs_mode"] = mode
+				}
+				if host, ok := obfsOpts["host"].(string); ok && host != "" {
+					ob["obfs_host"] = host
+				}
 			}
 		}
 	case "socks5", "socks":
@@ -412,6 +414,13 @@ func mihomoProxyToSingbox(p map[string]interface{}) (map[string]interface{}, str
 	}
 
 	if network, ok := p["network"].(string); ok && network != "" && network != "tcp" {
+		// sing-box 官方文档 (shared/v2ray-transport) 仅支持
+		// ws/http/httpupgrade/grpc/quic；XHTTP 等 sing-box 尚不支持的
+		// 传输若写入会导致整份配置解析失败——整节点跳过导出
+		// （Clash 订阅仍保留该节点供 mihomo 使用）。
+		if !singboxTransportSupported(network) {
+			return nil, ""
+		}
 		tr := map[string]interface{}{"type": network}
 		if opts, ok := p["ws-opts"].(map[string]interface{}); ok {
 			if path, ok := opts["path"]; ok {
@@ -429,6 +438,62 @@ func mihomoProxyToSingbox(p map[string]interface{}) (map[string]interface{}, str
 		ob["transport"] = tr
 	}
 	return ob, name
+}
+
+// singboxPluginAndOpts 将 Clash 风格的 plugin/plugin-opts 转换为 sing-box
+// 官方文档 (shadowsocks outbound) 要求的 SIP003 字符串形式：
+//
+//	plugin ∈ {obfs-local, v2ray-plugin}，plugin_opts 为 ";" 连接的 k=v 串，
+//	例如 "obfs=http;obfs-host=cdn.example.com"。
+func singboxPluginAndOpts(plugin string, opts interface{}) (string, string) {
+	plugin = strings.ToLower(strings.TrimSpace(plugin))
+	if plugin == "obfs" {
+		// Clash/mihomo 旧简写，sing-box 只认 obfs-local。
+		plugin = "obfs-local"
+	}
+	m, _ := opts.(map[string]interface{})
+	str := func(k string) string {
+		s, _ := m[k].(string)
+		return strings.TrimSpace(s)
+	}
+	switch plugin {
+	case "obfs-local":
+		parts := make([]string, 0, 2)
+		if mode := str("mode"); mode != "" {
+			parts = append(parts, "obfs="+mode)
+		}
+		if host := str("host"); host != "" {
+			parts = append(parts, "obfs-host="+host)
+		}
+		return plugin, strings.Join(parts, ";")
+	case "v2ray-plugin":
+		parts := make([]string, 0, 4)
+		if mode := str("mode"); mode != "" {
+			parts = append(parts, "mode="+mode)
+		}
+		if host := str("host"); host != "" {
+			parts = append(parts, "host="+host)
+		}
+		if path := str("path"); path != "" {
+			parts = append(parts, "path="+path)
+		}
+		if tls, _ := m["tls"].(bool); tls {
+			parts = append(parts, "tls=1")
+		}
+		return plugin, strings.Join(parts, ";")
+	}
+	return plugin, ""
+}
+
+// singboxTransportSupported 对照 sing-box 官方 shared/v2ray-transport 文档：
+// ws / http / httpupgrade / grpc / quic。XHTTP 等 sing-box 尚不支持的
+// 传输名（如 xhttp）返回 false。
+func singboxTransportSupported(network string) bool {
+	switch strings.ToLower(strings.TrimSpace(network)) {
+	case "ws", "websocket", "http", "httpupgrade", "grpc", "quic":
+		return true
+	}
+	return false
 }
 
 func needsSingboxTLS(typ string, p map[string]interface{}) bool {
