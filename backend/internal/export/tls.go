@@ -271,6 +271,13 @@ func BuildProfileFromConfig(l models.Listener, connectHost string, cfg map[strin
 	}
 	certPEM := MaterializeCertPEM(certRaw, l.ID)
 	sni := certutil.ResolveClientSNI(configured, l.PublicHost, host, certPEM)
+	// A panel self-signed certificate whose only identity is "localhost" is
+	// useless to a client dialling the published endpoint; advertising it
+	// would send SNI and the WS Host header to localhost (P2-4). Fall back
+	// to the connect host so profile-derived fields stay consistent.
+	if strings.EqualFold(strings.TrimSpace(sni), "localhost") && !strings.EqualFold(strings.Trim(host, "[]"), "localhost") {
+		sni = strings.Trim(host, "[]")
+	}
 	if strings.TrimSpace(sni) == "" {
 		sni = strings.Trim(host, "[]")
 	}

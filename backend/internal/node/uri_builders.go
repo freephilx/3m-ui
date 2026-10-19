@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/kazeyukiro/3m-ui/backend/internal/certutil"
@@ -74,6 +75,12 @@ func resolveURITLS(cfg map[string]interface{}, host string) (sni string, skip bo
 		}
 	}
 	sni = certutil.ResolveClientSNI(configured, "", host, certPEM)
+	// A self-signed fallback certificate whose only identity is "localhost"
+	// is useless to a client dialling the server by IP/域名; advertising it
+	// sends WS Host / SNI to localhost (P2-4). Fall back to the connect host.
+	if strings.EqualFold(strings.TrimSpace(sni), "localhost") && !strings.EqualFold(strings.TrimSpace(host), "localhost") {
+		sni = strings.Trim(strings.TrimSpace(host), "[]")
+	}
 	if strings.TrimSpace(sni) == "" {
 		sni = strings.Trim(strings.TrimSpace(host), "[]")
 	}
@@ -161,6 +168,12 @@ func transportParams(cfg map[string]interface{}) map[string]string {
 		if path, ok := xhttp["path"].(string); ok && path != "" {
 			params["path"] = path
 		}
+		// mode (auto / packet-up / stream-up) defaults differ between clients;
+		// make the listener's choice explicit instead of relying on each
+		// client's own default (P3).
+		if mode := configString(xhttp, "mode"); mode != "" {
+			params["mode"] = mode
+		}
 	}
 	return params
 }
@@ -171,8 +184,179 @@ func shadowsocksURIs(name, host, port string, cfg map[string]interface{}) ([]str
 	if cipher == "" || password == "" {
 		return nil, fmt.Errorf("shadowsocks listener requires cipher and password for URI export")
 	}
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(cipher + ":" + password))
-	return []string{addName("ss://"+encoded+"@"+netutil.JoinHostPort(host, port), name)}, nil
+	// Standard base64 (SIP002 letter table): legacy clients only implement
+	// the +/ alphabet, and base64url's -_ makes those parsers fail (P3).
+	encoded := base64.StdEncoding.EncodeToString([]byte(cipher + ":" + password))
+	params := map[string]string{}
+	// SIP003 plugin: a Shadowsocks listener wrapped in simple-obfs / kcptun /
+	// shadow-tls / restls / jls is unusable from a plain ss:// link — the
+	// client has to speak the same wrapper (P1-5). Encode the wrapper that
+	// the server actually runs so the URI stays self-sufficient.
+	if plugin := shadowsocksPluginValue(cfg); plugin != "" {
+		params["plugin"] = plugin
+	}
+	return []string{addName(query("ss://"+encoded+"@"+netutil.JoinHostPort(host, port), params), name)}, nil
+}
+
+// shadowsocksPluginValue builds the SIP003 plugin string for the wrappers a
+// Shadowsocks listener may carry (simple-obfs / kcp-tun / shadow-tls / restls /
+// jls). The names and option keys follow the mihomo proxies/ss wiki so both
+// mihomo and V2RayN-family clients can parse them.
+func shadowsocksPluginValue(cfg map[string]interface{}) string {
+	if obfs, ok := cfg["simple-obfs"].(map[string]interface{}); ok && cfgBool(obfs["enable"]) {
+		parts := []string{"obfs-local"}
+		if mode := configString(obfs, "mode"); mode != "" {
+			parts = append(parts, "obfs="+mode)
+		}
+		if obfsHost := configString(obfs, "host"); obfsHost != "" {
+			parts = append(parts, "obfs-host="+obfsHost)
+		}
+		return strings.Join(parts, ";")
+	}
+	if kcp, ok := cfg["kcp-tun"].(map[string]interface{}); ok && cfgBool(kcp["enable"]) {
+		parts := []string{"kcptun"}
+		for _, key := range []string{"key", "crypt", "mode", "conn"} {
+			if v := configString(kcp, key); v != "" {
+				parts = append(parts, key+"="+v)
+			}
+		}
+		return strings.Join(parts, ";")
+	}
+	if stls, ok := cfg["shadow-tls"].(map[string]interface{}); ok && cfgBool(stls["enable"]) {
+		parts := []string{"shadow-tls"}
+		if hs, ok := stls["handshake"].(map[string]interface{}); ok {
+			if dest := configString(hs, "dest"); dest != "" {
+				parts = append(parts, "host="+stripURIHostPort(dest))
+			}
+		}
+		if pwd := configString(stls, "password"); pwd != "" {
+			parts = append(parts, "password="+pwd)
+		} else if users, ok := stls["users"].([]interface{}); ok && len(users) > 0 {
+			if u, ok := users[0].(map[string]interface{}); ok {
+				if pwd := configString(u, "password"); pwd != "" {
+					parts = append(parts, "password="+pwd)
+				}
+			}
+		}
+		if version := configString(stls, "version"); version != "" {
+			parts = append(parts, "version="+version)
+		}
+		return strings.Join(parts, ";")
+	}
+	if restls, ok := cfg["res-tls"].(map[string]interface{}); ok && cfgBool(restls["enable"]) {
+		parts := []string{"restls"}
+		if dest := configString(restls, "dest"); dest != "" {
+			parts = append(parts, "host="+stripURIHostPort(dest))
+		}
+		if pwd := configString(restls, "password"); pwd != "" {
+			parts = append(parts, "password="+pwd)
+		}
+		parts = append(parts, "version-hint=tls13")
+		return strings.Join(parts, ";")
+	}
+	if jls, ok := cfg["jls-config"].(map[string]interface{}); ok && cfgBool(jls["enable"]) {
+		parts := []string{"jls"}
+		if dest := configString(jls, "dest"); dest != "" {
+			parts = append(parts, "host="+stripURIHostPort(dest))
+		}
+		if users, ok := jls["users"].([]interface{}); ok && len(users) > 0 {
+			if u, ok := users[0].(map[string]interface{}); ok {
+				if un := configString(u, "username"); un != "" {
+					parts = append(parts, "username="+un)
+				}
+				if pwd := configString(u, "password"); pwd != "" {
+					parts = append(parts, "password="+pwd)
+				}
+			}
+		}
+		return strings.Join(parts, ";")
+	}
+	return ""
+}
+
+// configString reads a listener-config value as a string, accepting JSON
+// numbers — the panel stores max-udp-relay-packet-size: 1500 and alterId: 8
+// as numbers, which a plain string type-assert silently drops (P1-5/P2-5).
+func configString(cfg map[string]interface{}, key string) string {
+	if cfg == nil {
+		return ""
+	}
+	return valueString(cfg[key])
+}
+
+func valueString(v interface{}) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(t)
+	case float64:
+		if t == float64(int64(t)) {
+			return strconv.FormatInt(int64(t), 10)
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case float32:
+		return valueString(float64(t))
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case json.Number:
+		return strings.TrimSpace(t.String())
+	default:
+		return ""
+	}
+}
+
+func cfgBool(v interface{}) bool {
+	b, _ := v.(bool)
+	return b
+}
+
+// userinfoSecret renders userinfo of the form "user:secret" (or a bare secret
+// when user is empty) for a share URI.
+//
+// Rules:
+//   - exactly one literal colon separates user from secret — Go's net/url
+//     splits the userinfo at the FIRST literal colon, and url.User would
+//     escape it to %3A, after which Password() returns "" for every Go client;
+//   - everything outside the unreserved set (ALPHA/DIGIT/-._~) is
+//     percent-escaped, so @ (userinfo boundary), / ? # (authority/path
+//     boundaries) and % (escape introducer) can never corrupt the link.
+//
+// This matches what v2rayN / mihomo / sing-box expect: they unescape the whole
+// userinfo and split at the first colon. It also round-trips exactly through
+// Go's url.Parse + User.String().
+func userinfoSecret(user, secret string) string {
+	esc := func(s string) string {
+		var b strings.Builder
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if userinfoUnreserved(c) {
+				b.WriteByte(c)
+			} else {
+				b.WriteString(fmt.Sprintf("%%%02X", c))
+			}
+		}
+		return b.String()
+	}
+	if user == "" {
+		return esc(secret)
+	}
+	return esc(user) + ":" + esc(secret)
+}
+
+func userinfoUnreserved(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+		c == '-' || c == '_' || c == '.' || c == '~'
+}
+
+// stripURIHostPort removes the :port suffix from a host:port pair.
+func stripURIHostPort(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return h
+	}
+	return addr
 }
 
 func vlessURIs(name, host, port string, cfg map[string]interface{}) ([]string, error) {
@@ -239,7 +423,12 @@ func vmessURIs(name, host, port string, cfg map[string]interface{}) ([]string, e
 		if uuid == "" {
 			return nil, fmt.Errorf("vmess user uuid is required")
 		}
-		aid := stringValue(cfg["alterId"], "0")
+		// alterId is commonly persisted as a JSON number; stringValue would
+		// silently fall back to "0" and break alterId!=0 listeners (P2-5).
+		aid := configString(cfg, "alterId")
+		if aid == "" {
+			aid = "0"
+		}
 		cipher := stringValue(cfg["cipher"], "auto")
 		obj := map[string]string{"v": "2", "ps": name, "add": host, "port": port, "id": uuid, "aid": aid, "scy": cipher, "net": "tcp", "type": "none"}
 		tlsOpts := tlsParams(cfg, host)
@@ -349,7 +538,7 @@ func trojanURIs(name, host, port string, cfg map[string]interface{}) ([]string, 
 				params["fp"] = "chrome"
 			}
 		}
-		result = append(result, addName(query("trojan://"+url.PathEscape(password)+"@"+netutil.JoinHostPort(host, port), params), name))
+		result = append(result, addName(query("trojan://"+userinfoSecret("", password)+"@"+netutil.JoinHostPort(host, port), params), name))
 	}
 	return result, nil
 }
@@ -395,7 +584,7 @@ func hysteria2URIs(name, host, port string, cfg map[string]interface{}) ([]strin
 			if v, ok := cfg["down"].(string); ok && v != "" {
 				params["down"] = v
 			}
-			userinfo := url.User(password).String()
+			userinfo := userinfoSecret("", password)
 			result = append(result, addName(query("hysteria2://"+userinfo+"@"+netutil.JoinHostPort(host, port), params), name))
 		}
 		if len(result) > 0 {
@@ -458,7 +647,7 @@ func hysteria2URIs(name, host, port string, cfg map[string]interface{}) ([]strin
 			params["down"] = v
 		}
 		_ = username
-		userinfo := url.User(password).String()
+		userinfo := userinfoSecret("", password)
 		result = append(result, addName(query("hysteria2://"+userinfo+"@"+netutil.JoinHostPort(host, port), params), name))
 	}
 	return result, nil
@@ -476,7 +665,9 @@ func tuicURIs(name, host, port string, cfg map[string]interface{}) ([]string, er
 		"udp-relay-mode":            "udp_relay_mode",
 		"max-udp-relay-packet-size": "max_udp_relay_packet_size",
 	} {
-		if v, ok := cfg[key].(string); ok && v != "" {
+		// configString accepts JSON numbers: max-udp-relay-packet-size: 1500
+		// is stored as an int and a plain string assert dropped it (P1-5).
+		if v := configString(cfg, key); v != "" {
 			params[out] = v
 		}
 	}
@@ -513,7 +704,9 @@ func tuicURIs(name, host, port string, cfg map[string]interface{}) ([]string, er
 			// v4 URI: tuic://<token>@host:port?<snake_case params>#<name>
 			// Pre-fix this path emitted zero query params, so v4 clients
 			// lost congestion_control / udp_relay_mode / alpn / sni / allow_insecure.
-			result = append(result, addName(query("tuic://"+url.PathEscape(ts)+"@"+netutil.JoinHostPort(host, port), params), name))
+			// url.User escapes @ / ? / # that PathEscape leaves intact (P0-1:
+			// a token containing @ broke the userinfo boundary for every client).
+			result = append(result, addName(query("tuic://"+userinfoSecret("", ts)+"@"+netutil.JoinHostPort(host, port), params), name))
 		}
 		if len(result) > 0 {
 			return result, nil
@@ -531,7 +724,10 @@ func tuicURIs(name, host, port string, cfg map[string]interface{}) ([]string, er
 			if uuid == "" || password == "" {
 				continue
 			}
-			result = append(result, addName(query("tuic://"+url.PathEscape(uuid)+":"+url.PathEscape(password)+"@"+netutil.JoinHostPort(host, port), params), name))
+			// v5 URI: tuic://<uuid>:<password>@host:port — userinfoSecret keeps
+			// the first colon as the uuid/password separator while escaping
+			// @ / / ? # inside credentials (P0-1).
+			result = append(result, addName(query("tuic://"+userinfoSecret(uuid, password)+"@"+netutil.JoinHostPort(host, port), params), name))
 		}
 		if len(result) > 0 {
 			return result, nil
@@ -547,7 +743,7 @@ func tuicURIs(name, host, port string, cfg map[string]interface{}) ([]string, er
 		if !ok || password == "" {
 			return nil, fmt.Errorf("tuic user %q has empty password", uuid)
 		}
-		result = append(result, addName(query("tuic://"+url.PathEscape(uuid)+":"+url.PathEscape(password)+"@"+netutil.JoinHostPort(host, port), params), name))
+		result = append(result, addName(query("tuic://"+userinfoSecret(uuid, password)+"@"+netutil.JoinHostPort(host, port), params), name))
 	}
 	return result, nil
 }
@@ -589,7 +785,7 @@ func anytlsURIs(name, host, port string, cfg map[string]interface{}) ([]string, 
 			params["min_idle_session"] = v
 		}
 		_ = username
-		result = append(result, addName(query("anytls://"+url.User(password).String()+"@"+netutil.JoinHostPort(host, port), params), name))
+		result = append(result, addName(query("anytls://"+userinfoSecret("", password)+"@"+netutil.JoinHostPort(host, port), params), name))
 	}
 	return result, nil
 }

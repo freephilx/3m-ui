@@ -182,10 +182,53 @@ func sanitizeListenerConfigJSON(l *models.Listener) error {
 		delete(raw, "public_key")
 		cfg["reality-config"] = raw
 	}
+	// Mihomo validates `alpn` as a string list on every listener
+	// (hysteria2/tuic/shadowquic/…). The panel schema once let scalars through
+	// and a single scalar made the whole listeners array fail to load.
+	// Normalize to the list form at the trust boundary (P1-4).
+	normalizeAlpnFields(cfg)
 	b, err := json.Marshal(cfg)
 	if err != nil {
 		return err
 	}
 	l.Config = string(b)
 	return nil
+}
+
+// normalizeAlpnFields rewrites legacy scalar alpn values into the string-list
+// form Mihomo requires. Applies to the listener top level and to the nested
+// wrapper blocks that carry their own alpn (jls-config, realm-opts).
+func normalizeAlpnFields(cfg map[string]interface{}) {
+	if cfg == nil {
+		return
+	}
+	alpnToList(cfg, "alpn")
+	for _, parent := range []string{"jls-config", "realm-opts"} {
+		if nested, ok := cfg[parent].(map[string]interface{}); ok {
+			alpnToList(nested, "alpn")
+		}
+	}
+}
+
+func alpnToList(m map[string]interface{}, key string) {
+	switch v := m[key].(type) {
+	case string:
+		if s := strings.TrimSpace(v); s != "" {
+			m[key] = []string{s}
+		} else {
+			delete(m, key)
+		}
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		if len(out) > 0 {
+			m[key] = out
+		} else {
+			delete(m, key)
+		}
+	}
 }

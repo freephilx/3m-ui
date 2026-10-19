@@ -85,14 +85,30 @@ func ClientURIsWithCredentials(listener models.Listener, host string, credential
 			// If neither produced anything, leave Config users untouched.
 
 		case "shadowsocks", "snell", "sudoku":
-			if credentials[0].Password != "" {
-				cfg["password"] = credentials[0].Password
+			// Single-secret protocols: mirror the runtime compiler and the
+			// client-YAML exporter (P1-1):
+			//   config secret present → keep it (the live inbound authenticates
+			//                          with exactly this secret)
+			//   config secret absent  → fall back to the subscriber's own secret
+			// This keeps the share link, the Mihomo YAML and the live listener
+			// in agreement about the password. Resolution must not depend on
+			// how many users are bound: the export path only ever sees the
+			// subscribing user, while the runtime sees them all.
+			field := "password"
+			switch proto {
+			case "snell":
+				field = "psk"
+			case "sudoku":
+				field = "key"
 			}
-			if proto == "snell" && credentials[0].Password != "" {
-				cfg["psk"] = credentials[0].Password
+			secret := ""
+			if v, ok := cfg[field].(string); ok && strings.TrimSpace(v) != "" {
+				secret = strings.TrimSpace(v)
+			} else if len(credentials) > 0 && credentials[0].Password != "" {
+				secret = credentials[0].Password
 			}
-			if proto == "sudoku" && credentials[0].Password != "" {
-				cfg["key"] = credentials[0].Password
+			if secret != "" {
+				cfg[field] = secret
 			}
 
 		default:

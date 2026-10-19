@@ -335,10 +335,9 @@ func mihomoProxyToSingbox(p map[string]interface{}) (map[string]interface{}, str
 		if rawToken, ok := p["token"]; ok && rawToken != nil {
 			tokens := normalizeStringList(rawToken)
 			if len(tokens) > 0 {
-				// sing-box accepts uuid-less token mode via uuid empty + token in some builds;
-				// prefer explicit token field when present (v4).
-				ob["uuid"] = tokens[0]
-				ob["password"] = tokens[0]
+				// sing-box's TUIC outbound v4 mode is token-only. Writing
+				// uuid/password as duplicates of the token confuses strict
+				// parsers (P3) — only set them for genuine v5 users below.
 				ob["token"] = tokens
 			}
 		}
@@ -361,6 +360,26 @@ func mihomoProxyToSingbox(p map[string]interface{}) (map[string]interface{}, str
 		}
 	case "anytls":
 		ob["password"] = p["password"]
+	case "snell":
+		// sing-box has a native snell outbound (1:1 field mapping).
+		if psk := firstString(p["psk"], p["password"]); psk != "" {
+			ob["psk"] = psk
+		}
+		if v, ok := p["version"]; ok {
+			ob["version"] = toInt(v)
+		}
+		if obfsOpts, ok := p["obfs-opts"].(map[string]interface{}); ok && len(obfsOpts) > 0 {
+			obfs := map[string]interface{}{}
+			if mode, ok := obfsOpts["mode"]; ok {
+				obfs["mode"] = mode
+			}
+			if host, ok := obfsOpts["host"]; ok {
+				obfs["host"] = host
+			}
+			if len(obfs) > 0 {
+				ob["obfs"] = obfs
+			}
+		}
 	case "socks5", "socks":
 		ob["type"] = "socks"
 		if u, ok := p["username"].(string); ok {
@@ -497,18 +516,21 @@ func normalizeStringList(v interface{}) []string {
 }
 
 func mapMihomoTypeToSingbox(t string) string {
-	switch strings.ToLower(t) {
+	lower := strings.ToLower(t)
+	switch lower {
 	case "ss", "shadowsocks":
 		return "shadowsocks"
 	case "hysteria2":
 		return "hysteria2"
 	case "socks", "socks5":
 		return "socks"
-	case "snell", "mieru", "sudoku", "shadowquic", "trusttunnel":
+	case "mieru", "sudoku", "shadowquic", "trusttunnel":
 		// No stable 1:1 outbound in stock sing-box for these panel types.
+		// NOTE: snell DOES have a native sing-box outbound — it falls through
+		// the default branch and is handled by the snell case above (P2-2).
 		return ""
 	default:
-		return strings.ToLower(t)
+		return lower
 	}
 }
 

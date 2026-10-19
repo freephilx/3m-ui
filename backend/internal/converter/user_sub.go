@@ -127,11 +127,23 @@ func GenerateUserRawConfig(db *gorm.DB, pu models.ProxyUser, req *http.Request) 
 			}
 			err = nil
 		}
+		// Naming: listenerToProxies already appends a per-user suffix when a
+		// listener carries several users. Do NOT append the subscription username
+		// unconditionally — that made the same node appear under three different
+		// names across YAML / base64 / sing-box exports (P2-1). Only disambiguate
+		// genuine collisions (e.g. mirrored/external nodes reusing a panel name).
+		seen := map[string]int{}
 		for _, p := range proxies {
-			if name, ok := p["name"].(string); ok {
-				p["name"] = name + "-" + pu.Username
-				names = append(names, p["name"].(string))
+			name, _ := p["name"].(string)
+			if name == "" {
+				continue
 			}
+			if seen[name] > 0 {
+				name = fmt.Sprintf("%s-%s", name, pu.Username)
+			}
+			seen[name]++
+			p["name"] = name
+			names = append(names, name)
 			allProxies = append(allProxies, p)
 		}
 	}

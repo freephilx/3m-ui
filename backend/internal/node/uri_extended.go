@@ -3,7 +3,6 @@ package node
 import (
 	"fmt"
 	"net"
-	"net/url"
 	"strings"
 )
 
@@ -70,7 +69,7 @@ func shadowQUICURIs(name, host, port string, cfg map[string]interface{}) ([]stri
 		if b, ok := cfg["disable-mtu-discovery"].(bool); ok && b {
 			params["disable-mtu-discovery"] = "1"
 		}
-		result = append(result, addName(query("shadowquic://"+url.PathEscape(username)+":"+url.PathEscape(password)+"@"+net.JoinHostPort(host, port), params), name))
+		result = append(result, addName(query("shadowquic://"+userinfoSecret(username, password)+"@"+net.JoinHostPort(host, port), params), name))
 	}
 	return result, nil
 }
@@ -95,7 +94,7 @@ func mieruURIs(name, host, port string, cfg map[string]interface{}) ([]string, e
 		if v := stringValue(cfg["port-range"], ""); v != "" {
 			params["portRange"] = v
 		}
-		result = append(result, addName(query("mieru://"+url.PathEscape(username)+":"+url.PathEscape(password)+"@"+net.JoinHostPort(host, port), params), name))
+		result = append(result, addName(query("mieru://"+userinfoSecret(username, password)+"@"+net.JoinHostPort(host, port), params), name))
 	}
 	return result, nil
 }
@@ -175,7 +174,7 @@ func trustTunnelURIs(name, host, port string, cfg map[string]interface{}) ([]str
 				params[key] = "1"
 			}
 		}
-		result = append(result, addName(query("trusttunnel://"+url.PathEscape(username)+":"+url.PathEscape(password)+"@"+net.JoinHostPort(host, port), params), name))
+		result = append(result, addName(query("trusttunnel://"+userinfoSecret(username, password)+"@"+net.JoinHostPort(host, port), params), name))
 	}
 	return result, nil
 }

@@ -81,7 +81,42 @@ func (r Registry) Compile(in CompileInput) (map[string]interface{}, error) {
 	if !ok {
 		return nil, fmt.Errorf("unsupported protocol %q", kind)
 	}
-	return m.Compile(in)
+	out, err := m.Compile(in)
+	if err != nil {
+		return nil, err
+	}
+	// Mihomo validates `alpn` as a string list on every listener; the panel
+	// schema once stored scalars there. Normalizing here means one legacy
+	// value can no longer take the whole listeners array offline (P1-4) —
+	// including configs saved before the import-side normalization.
+	if v, ok := out["alpn"]; ok {
+		out["alpn"] = normalizeAlpnValue(v)
+	}
+	return out, nil
+}
+
+// normalizeAlpnValue converts a scalar alpn into the []string form Mihomo
+// requires. Lists pass through unchanged; blank entries are dropped.
+func normalizeAlpnValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case string:
+		if s := strings.TrimSpace(val); s != "" {
+			return []string{s}
+		}
+		return []string{}
+	case []interface{}:
+		out := make([]string, 0, len(val))
+		for _, item := range val {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	case []string:
+		return val
+	default:
+		return v
+	}
 }
 
 func (r Registry) Has(kind string) bool {

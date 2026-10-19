@@ -3,7 +3,6 @@ package protocol
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"strings"
 )
 
@@ -23,7 +22,41 @@ func (g GenericCompiler) Compile(in CompileInput) (map[string]interface{}, error
 	if in.TLS {
 		m["tls"] = true
 	}
+	// Single-secret protocols follow the Shadowsocks rule (P1-1): the listener
+	// config secret (psk / key) is the source of truth and the running inbound
+	// keeps it; only when the config carries none does the first bound user's
+	// password stand in. The URI and client-YAML exporters resolve the same
+	// way (they see the same config map), so exports never disagree with the
+	// running listener, and a multi-user bind never takes the listener offline.
+	switch g.kind {
+	case "snell", "sudoku":
+		field := "psk"
+		if g.kind == "sudoku" {
+			field = "key"
+		}
+		if secret, ok := resolveSingleSecret(m, in.Users, field); ok {
+			m[field] = secret
+		}
+	}
 	return m, nil
+}
+
+// resolveSingleSecret implements the shared single-secret resolution rule for
+// Shadowsocks / Snell / Sudoku listeners and exports:
+//
+//	config secret present → keep it (the live inbound authenticates with it)
+//	config secret absent  → first bound user's password is the fallback
+//
+// It returns the resolved secret and whether it should override the value
+// already present in the listener/export map.
+func resolveSingleSecret(m map[string]interface{}, users []UserCred, field string) (string, bool) {
+	if cur, _ := m[field].(string); strings.TrimSpace(cur) != "" {
+		return "", false
+	}
+	if len(users) > 0 && strings.TrimSpace(users[0].Password) != "" {
+		return strings.TrimSpace(users[0].Password), true
+	}
+	return "", false
 }
 
 type VLESSCompiler struct{}
@@ -96,11 +129,16 @@ func (ShadowsocksCompiler) Compile(in CompileInput) (map[string]interface{}, err
 	// so disabling UDP in the panel is preserved instead of silently falling
 	// back to the core default after each config regeneration.
 	m["udp"] = in.UDP
-	if len(in.Users) > 1 {
-		return nil, fmt.Errorf("shadowsocks supports one password; %d credentials bound", len(in.Users))
-	}
-	if len(in.Users) == 1 && in.Users[0].Password != "" {
-		m["password"] = in.Users[0].Password
+	// Mihomo's SS listener holds exactly one password, but panels routinely
+	// bind several users to a listener. Resolve deterministically instead of
+	// skipping the whole listener ("supports one password" used to take every
+	// credential on the node offline):
+	//   config password present → keep it (matches URI/client exports)
+	//   config password absent  → fall back to the first bound user
+	if pw, _ := m["password"].(string); strings.TrimSpace(pw) == "" {
+		if len(in.Users) > 0 && strings.TrimSpace(in.Users[0].Password) != "" {
+			m["password"] = strings.TrimSpace(in.Users[0].Password)
+		}
 	}
 	return m, nil
 }

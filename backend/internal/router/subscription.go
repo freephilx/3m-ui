@@ -21,6 +21,11 @@ import (
 	"gorm.io/gorm"
 )
 
+// defaultSubpageTitle mirrors subpage.Settings' install-time default title.
+// When the operator has not customized it, the per-user remark/username is
+// used for Profile-Title instead (see writeSubHeaders).
+const defaultSubpageTitle = "3m-ui Subscription"
+
 func subscriptionHandler(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if db == nil {
@@ -184,24 +189,35 @@ func writeSubHeaders(c *gin.Context, db *gorm.DB, pu *models.ProxyUser) {
 	upload := pu.UploadBytes
 	download := pu.DownloadBytes
 	total := pu.TrafficLimit
+	// Subscription-Userinfo: omit expire entirely when the account never
+	// expires. Some clients read expire=0 as "expired since epoch" instead of
+	// "no limit" (P1-6); leaving the field out is the de-facto convention.
 	expire := int64(0)
 	if !pu.ExpireTime.IsZero() {
 		expire = pu.ExpireTime.Unix()
 	}
-	c.Header("Subscription-Userinfo",
-		"upload="+itoa(upload)+"; download="+itoa(download)+"; total="+itoa(total)+"; expire="+itoa(expire))
+	userinfo := "upload=" + itoa(upload) + "; download=" + itoa(download) + "; total=" + itoa(total)
+	if expire != 0 {
+		userinfo += "; expire=" + itoa(expire)
+	}
+	c.Header("Subscription-Userinfo", userinfo)
 	page := subpage.LoadPageSettings(db)
 	hours := page.UpdateHours
 	if hours <= 0 {
 		hours = 12
 	}
 	c.Header("Profile-Update-Interval", itoa(int64(hours)))
+	// The install default title ("3m-ui Subscription") is not a real choice
+	// by the operator, so prefer the account's own remark/username: every
+	// client subscription then names the account it belongs to (P3). A
+	// custom sub_title from the page settings still wins.
 	title := strings.TrimSpace(page.Title)
-	if title == "" {
-		title = strings.TrimSpace(pu.Remark)
-	}
-	if title == "" {
-		title = strings.TrimSpace(pu.Username)
+	if title == "" || title == defaultSubpageTitle {
+		if remark := strings.TrimSpace(pu.Remark); remark != "" {
+			title = remark
+		} else if username := strings.TrimSpace(pu.Username); username != "" {
+			title = username
+		}
 	}
 	if title == "" {
 		title = "3m-ui"
@@ -267,6 +283,10 @@ func RegisterPublicSubscriptionRoutes(api *gin.RouterGroup, db *gorm.DB, cfg *co
 	api.GET("/client/clash/:token/", forcedTargetHandler(db, cfg, "clash"))
 	api.GET("/client/v2ray/:token", forcedTargetHandler(db, cfg, "v2ray"))
 	api.GET("/client/v2ray/:token/", forcedTargetHandler(db, cfg, "v2ray"))
+	// Root-level short paths (clients hardcode /v2ray/<token>) live on the
+	// root engine — see RegisterLegacySubscriptionRoutes. Registering them on
+	// the /api/v1 group would expose them at /api/v1/v2ray/:token instead and
+	// the bare path would still fall through to the SPA HTML (P2-6).
 }
 
 // RegisterCustomSubPathRoutes mounts subscription handlers under an optional
@@ -305,6 +325,10 @@ func RegisterLegacySubscriptionRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Co
 	r.GET("/json/:token/", forcedTargetHandler(db, cfg, "singbox"))
 	r.GET("/clash/:token", forcedTargetHandler(db, cfg, "clash"))
 	r.GET("/clash/:token/", forcedTargetHandler(db, cfg, "clash"))
+	// Root-level v2ray short path (clients hardcode /v2ray/<token>). Without
+	// it the request falls through to the SPA HTML (P2-6).
+	r.GET("/v2ray/:token", forcedTargetHandler(db, cfg, "v2ray"))
+	r.GET("/v2ray/:token/", forcedTargetHandler(db, cfg, "v2ray"))
 	r.GET("/api/client/sub/:token", handler)
 	r.GET("/api/client/sub/:token/", handler)
 }

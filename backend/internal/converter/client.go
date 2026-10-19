@@ -140,9 +140,26 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 	// Never let a leftover token shadow v5 users / panel credentials.
 	cfgCreds := credentialsFromListenerConfig(protocol, opts)
 	switch protocol {
-	case "tuic-v4", "shadowsocks", "snell", "sudoku":
+	case "tuic-v4":
+		// TUIC v4 authenticates with the token list in Config; the config is
+		// the source of truth and supports multiple tokens.
 		if len(cfgCreds) > 0 {
 			credentials = cfgCreds
+		}
+	case "shadowsocks", "snell", "sudoku":
+		// Single-secret protocols. Resolve EXACTLY like the runtime compiler
+		// (protocol.resolveSingleSecret) so exports never disagree with the
+		// running listener (P1-1: exported SS used the config password while
+		// the runtime injected the bound user's password):
+		//   config secret present → keep it
+		//   config secret absent  → fall back to the subscriber's own secret
+		// Resolution must not depend on the bound-user count: the export path
+		// only sees the subscribing user, while the runtime sees them all.
+		switch {
+		case len(cfgCreds) > 0:
+			credentials = cfgCreds
+		case len(credentials) > 1:
+			credentials = credentials[:1]
 		}
 	case "tuic-v5":
 		// Panel-bound UUID/password is what the subscription user authenticates
@@ -194,12 +211,13 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 	result := make([]map[string]interface{}, 0, max(1, len(credentials)))
 	switch protocol {
 	case "shadowsocks":
-		p := makeProxy(credentialSuffix(credentials, 0))
+		p := makeProxy("")
 		copyOption(p, opts, "cipher")
-		if len(credentials) > 1 {
-			return nil, fmt.Errorf("listener %q: Shadowsocks can export only one password", l.Name)
-		}
-		if len(credentials) == 1 && credentials[0].Password != "" {
+		// Credentials were already reduced to the single effective secret above
+		// (one bound user wins; otherwise config password / first user). The
+		// old "Shadowsocks can export only one password" hard error made the
+		// whole node vanish from the subscription when admins bound two users.
+		if len(credentials) >= 1 && credentials[0].Password != "" {
 			p["password"] = credentials[0].Password
 		} else if value, ok := opts["password"]; ok {
 			p["password"] = value
@@ -237,7 +255,13 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 		result = append(result, p)
 	case "snell":
 		p := makeProxy("")
-		copyOption(p, opts, "psk")
+		// Single-secret resolution (mirrors runtime + URI export): exactly one
+		// bound user's password wins, otherwise the config psk stands.
+		if len(credentials) >= 1 && credentials[0].Password != "" {
+			p["psk"] = credentials[0].Password
+		} else {
+			copyOption(p, opts, "psk")
+		}
 		copyOption(p, opts, "version")
 		copyOption(p, opts, "udp")
 		if value, ok := opts["obfs-opts"]; ok {
@@ -300,7 +324,17 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 			return nil, fmt.Errorf("listener %q requires at least one active user for Trojan client export", l.Name)
 		}
 		for i, cred := range credentials {
-			p := makeProxy(fmt.Sprintf("%d", i+1))
+			// Only disambiguate when several users share the listener; a lone
+			// user keeps the plain panel name so YAML / URI / sing-box exports
+			// all show the same node name (P2-1).
+			suffix := ""
+			if len(credentials) > 1 {
+				suffix = credentialSuffix(credentials, i)
+				if suffix == "" {
+					suffix = fmt.Sprintf("%d", i+1)
+				}
+			}
+			p := makeProxy(suffix)
 			p["password"] = cred.Password
 			for _, key := range []string{"sni", "alpn", "fingerprint", "client-fingerprint", "skip-cert-verify", "name-cert-verify"} {
 				copyOption(p, opts, key)
@@ -325,7 +359,17 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 			return nil, fmt.Errorf("listener %q requires at least one active user for Hysteria 2 client export", l.Name)
 		}
 		for i, cred := range credentials {
-			p := makeProxy(fmt.Sprintf("%d", i+1))
+			// Only disambiguate when several users share the listener; a lone
+			// user keeps the plain panel name so YAML / URI / sing-box exports
+			// all show the same node name (P2-1).
+			suffix := ""
+			if len(credentials) > 1 {
+				suffix = credentialSuffix(credentials, i)
+				if suffix == "" {
+					suffix = fmt.Sprintf("%d", i+1)
+				}
+			}
+			p := makeProxy(suffix)
 			p["password"] = cred.Password
 			for _, key := range []string{
 				"up", "down", "obfs", "obfs-password", "bbr-profile",
@@ -453,7 +497,15 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 			return nil, fmt.Errorf("listener %q requires at least one active user for ShadowQUIC client export", l.Name)
 		}
 		for i, cred := range credentials {
-			p := makeProxy(fmt.Sprintf("%d", i+1))
+			// Only disambiguate when several users share the listener (P2-1).
+			suffix := ""
+			if len(credentials) > 1 {
+				suffix = credentialSuffix(credentials, i)
+				if suffix == "" {
+					suffix = fmt.Sprintf("%d", i+1)
+				}
+			}
+			p := makeProxy(suffix)
 			p["username"] = cred.Username
 			p["password"] = cred.Password
 			for _, key := range []string{
@@ -501,7 +553,17 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 			return nil, fmt.Errorf("listener %q requires at least one active user for AnyTLS client export", l.Name)
 		}
 		for i, cred := range credentials {
-			p := makeProxy(fmt.Sprintf("%d", i+1))
+			// Only disambiguate when several users share the listener; a lone
+			// user keeps the plain panel name so YAML / URI / sing-box exports
+			// all show the same node name (P2-1).
+			suffix := ""
+			if len(credentials) > 1 {
+				suffix = credentialSuffix(credentials, i)
+				if suffix == "" {
+					suffix = fmt.Sprintf("%d", i+1)
+				}
+			}
+			p := makeProxy(suffix)
 			p["password"] = cred.Password
 			for _, key := range []string{
 				"client-fingerprint", "udp", "idle-session-check-interval",
@@ -518,7 +580,15 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 			return nil, fmt.Errorf("listener %q requires at least one active user for Mieru client export", l.Name)
 		}
 		for i, cred := range credentials {
-			p := makeProxy(fmt.Sprintf("%d", i+1))
+			// Only disambiguate when several users share the listener (P2-1).
+			suffix := ""
+			if len(credentials) > 1 {
+				suffix = credentialSuffix(credentials, i)
+				if suffix == "" {
+					suffix = fmt.Sprintf("%d", i+1)
+				}
+			}
+			p := makeProxy(suffix)
 			p["username"] = cred.Username
 			p["password"] = cred.Password
 			for _, key := range []string{"transport", "multiplexing", "handshake-mode", "traffic-pattern"} {
@@ -535,13 +605,26 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 		} {
 			copyOption(p, opts, key)
 		}
+		// Single-secret resolution (mirrors runtime + URI export): one bound
+		// user's password overrides the config key.
+		if len(credentials) >= 1 && credentials[0].Password != "" {
+			p["key"] = credentials[0].Password
+		}
 		result = append(result, p)
 	case "trusttunnel":
 		if len(credentials) == 0 {
 			return nil, fmt.Errorf("listener %q requires at least one active user for TrustTunnel client export", l.Name)
 		}
 		for i, cred := range credentials {
-			p := makeProxy(fmt.Sprintf("%d", i+1))
+			// Only disambiguate when several users share the listener (P2-1).
+			suffix := ""
+			if len(credentials) > 1 {
+				suffix = credentialSuffix(credentials, i)
+				if suffix == "" {
+					suffix = fmt.Sprintf("%d", i+1)
+				}
+			}
+			p := makeProxy(suffix)
 			p["username"] = cred.Username
 			p["password"] = cred.Password
 			for _, key := range []string{
@@ -605,8 +688,41 @@ func listenerToProxies(l models.Listener, server string, credentials []user.Cred
 	for _, p := range result {
 		ensureClientAccessTLS(p, l, server, opts)
 		applyClientSkipCertVerify(p, opts, server, l.ID)
+		// Mihomo and every client reject a scalar alpn; the panel schema once
+		// allowed one through (P1-4). Normalize whatever survived the branches.
+		normalizeClientAlpn(p)
 	}
 	return result, nil
+}
+
+// normalizeClientAlpn converts scalar alpn values into the string-list form
+// clients expect. A stray empty scalar is dropped so the protocol defaults
+// apply instead of an invalid empty list.
+func normalizeClientAlpn(p map[string]interface{}) {
+	v, ok := p["alpn"]
+	if !ok || p == nil {
+		return
+	}
+	switch val := v.(type) {
+	case string:
+		if s := strings.TrimSpace(val); s != "" {
+			p["alpn"] = []string{s}
+		} else {
+			delete(p, "alpn")
+		}
+	case []interface{}:
+		out := make([]string, 0, len(val))
+		for _, item := range val {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		if len(out) > 0 {
+			p["alpn"] = out
+		} else {
+			delete(p, "alpn")
+		}
+	}
 }
 
 func applyClientWrappers(p map[string]interface{}, opts map[string]interface{}) {
@@ -1219,6 +1335,19 @@ func copyTransport(dst, src map[string]interface{}) {
 				if v, ok := dst[key].(string); ok && strings.TrimSpace(v) != "" {
 					headers["Host"] = strings.TrimSpace(v)
 					break
+				}
+			}
+			// Last resort: the certificate's best identity. The URI exporters
+			// derive the WS Host the same way, so this keeps the YAML and the
+			// share links in agreement instead of emitting the raw server IP
+			// (P2-3). "localhost" is never useful for a client dialling the
+			// published endpoint (P2-4).
+			if h, _ := headers["Host"].(string); strings.TrimSpace(h) == "" || net.ParseIP(h) != nil {
+				if pem := certPEMFromOpts(src); pem != "" {
+					if sni := certutil.PreferredSNIFromCert(pem); sni != "" &&
+						net.ParseIP(sni) == nil && !strings.EqualFold(sni, "localhost") {
+						headers["Host"] = sni
+					}
 				}
 			}
 		}
