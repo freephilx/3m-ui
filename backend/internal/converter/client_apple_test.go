@@ -1,6 +1,7 @@
 package converter
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -265,10 +266,211 @@ func TestRenderSurgeAlpnPassthrough(t *testing.T) {
 func TestRenderQuanXVmess(t *testing.T) {
 	n, _ := parseShareURI("vmess://eyJ2IjoiMiIsInBzIjoidjEiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjUyMzk2ZTA2LTA0MWEtNGNjMi1iZTVjLTg1MjVlYjQ1NzgwOSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0Ijoid3MiLCJ0eXBlIjoibm9uZSIsInRscyI6InRscyIsInNuaSI6InZtLmV4YW1wbGUuY29tIiwiaG9zdCI6ImNkbi5leGFtcGxlLmNvbSIsInBhdGgiOiIvd3MifQ==#v1")
 	got := renderQuanXNode(n)
-	for _, frag := range []string{"vmess=vm.example.com:443", "method=none", "password=52396e06", "obfs=ws", "obfs-uri=/ws", "over-tls=true", "tls-host=vm.example.com", "tag=v1"} {
+	// sample.conf vmess-ws-tls-02: WebSocket over TLS is obfs=wss with
+	// obfs-host/obfs-uri — never over-tls plus tls-host.
+	for _, frag := range []string{"vmess=vm.example.com:443", "method=none", "password=52396e06", "obfs=wss", "obfs-uri=/ws", "obfs-host=cdn.example.com", "tag=v1"} {
 		if !strings.Contains(got, frag) {
 			t.Fatalf("qx vmess missing %q: %s", frag, got)
 		}
+	}
+	for _, bad := range []string{"over-tls", "tls-host"} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("qx vmess ws must not carry %q: %s", bad, got)
+		}
+	}
+}
+
+func TestRenderQuanXShadowsocksKeyword(t *testing.T) {
+	// sample.conf writes shadowsocks=…, never ss=.
+	n, _ := parseShareURI("ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@ss.example.com:8388#ss-node")
+	got := renderQuanXNode(n)
+	if !strings.HasPrefix(got, "shadowsocks=ss.example.com:8388, method=aes-128-gcm") {
+		t.Fatalf("qx shadowsocks keyword: %s", got)
+	}
+	if strings.Contains(got, " ss=") || strings.HasPrefix(got, "ss=") {
+		t.Fatalf("qx must not use ss= keyword: %s", got)
+	}
+}
+
+func TestRenderQuanXSSPluginForms(t *testing.T) {
+	ok, _ := parseShareURI("ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@ss.example.com:80?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dbing.com#obfs")
+	if got := renderQuanXNode(ok); !strings.Contains(got, "obfs=http, obfs-host=bing.com") {
+		t.Fatalf("qx simple-obfs mapping: %s", got)
+	}
+	// kcptun / shadow-tls / restls / jls have no QX obfs counterpart.
+	for _, plugin := range []string{"kcptun;key=x", "shadow-tls;host=apple.com;password=x", "restls;host=apple.com", "jls;password=x"} {
+		n, _ := parseShareURI("ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@ss.example.com:80?plugin=" + url.QueryEscape(plugin) + "#wrap")
+		if got := renderQuanXNode(n); got != "" {
+			t.Fatalf("qx must drop unsupported ss plugin %q: %s", plugin, got)
+		}
+	}
+}
+
+func TestRenderQuanXVmessTcpTLS(t *testing.T) {
+	// sample.conf vmess-tls-02: obfs=over-tls with the SNI in obfs-host and
+	// tls-verification — not the trojan-style over-tls=true/tls-host pair.
+	n, _ := parseShareURI("vmess://eyJ2IjoiMiIsInBzIjoidjEiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjUyMzk2ZTA2LTA0MWEtNGNjMi1iZTVjLTg1MjVlYjQ1NzgwOSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0IjoidGNwIiwidHlwZSI6Im5vbmUiLCJ0bHMiOiJ0bHMiLCJzbmkiOiJ2bS5leGFtcGxlLmNvbSJ9#v1")
+	got := renderQuanXNode(n)
+	for _, frag := range []string{"obfs=over-tls", "obfs-host=vm.example.com", "tls-verification=true"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("qx vmess tls missing %q: %s", frag, got)
+		}
+	}
+	for _, bad := range []string{"over-tls=true", "tls-host="} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("qx vmess tls must not carry %q: %s", bad, got)
+		}
+	}
+}
+
+func TestRenderQuanXVmessTcpTLSInsecure(t *testing.T) {
+	n, _ := parseShareURI("vmess://eyJ2IjoiMiIsInBzIjoidjEiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjUyMzk2ZTA2LTA0MWEtNGNjMi1iZTVjLTg1MjVlYjQ1NzgwOSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0IjoidGNwIiwidHlwZSI6Im5vbmUiLCJ0bHMiOiJ0bHMiLCJzbmkiOiJ2bS5leGFtcGxlLmNvbSJ9#v1")
+	n.Params["allowInsecure"] = "1"
+	if got := renderQuanXNode(n); !strings.Contains(got, "tls-verification=false") {
+		t.Fatalf("qx insecure must set tls-verification=false: %s", got)
+	}
+}
+
+func TestRenderQuanXVmessReality(t *testing.T) {
+	n, _ := parseShareURI("vmess://eyJ2IjoiMiIsInBzIjoicjEiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjUyMzk2ZTA2LTA0MWEtNGNjMi1iZTVjLTg1MjVlYjQ1NzgwOSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0IjoidGNwIiwidHlwZSI6Im5vbmUiLCJ0bHMiOiJyZWFsaXR5Iiwic25pIjoid3d3LmV4YW1wbGUuY29tIiwicGJrIjoiazRVeGV6MHNqbDhiS2FaSDJWZ2k4LVdERnNoTUw1MVFreEtGTFdGSU9OayIsInNpZCI6IjAxMjM0NTY3ODlhYmNkZWYifQ==#r1")
+	got := renderQuanXNode(n)
+	for _, frag := range []string{"obfs=over-tls", "obfs-host=www.example.com", "reality-base64-pubkey=k4Uxez0sjl8bKaZH2Vgi8-WDFshML51QkxKFLWFIONk", "reality-hex-shortid=0123456789abcdef"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("qx vmess reality missing %q: %s", frag, got)
+		}
+	}
+	// sample.conf reality lines never pair with tls-verification.
+	if strings.Contains(got, "tls-verification") {
+		t.Fatalf("qx reality must not carry tls-verification: %s", got)
+	}
+}
+
+func TestRenderQuanXVlessVisionReality(t *testing.T) {
+	// sample.conf vless-tls-reality-vision-01.
+	n, _ := parseShareURI("vless://52396e06-041a-4cc2-be5c-8525eb457809@vless.example.com:443?security=reality&pbk=k4Uxez0sjl8bKaZH2Vgi8-WDFshML51QkxKFLWFIONk&sid=0123456789abcdef&flow=xtls-rprx-vision&sni=www.example.com#reality")
+	got := renderQuanXNode(n)
+	want := "vless=vless.example.com:443, method=none, password=52396e06-041a-4cc2-be5c-8525eb457809, vless-flow=xtls-rprx-vision, obfs=over-tls, obfs-host=www.example.com, reality-base64-pubkey=k4Uxez0sjl8bKaZH2Vgi8-WDFshML51QkxKFLWFIONk, reality-hex-shortid=0123456789abcdef, udp-relay=true, tag=reality"
+	if got != want {
+		t.Fatalf("qx vless reality line:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestRenderQuanXTrojanTLS(t *testing.T) {
+	// sample.conf trojan-tls-03: over-tls=true with tls-host, the opposite
+	// family spelling from vmess.
+	n, _ := parseShareURI("trojan://pwd@192.168.1.1:443?security=tls&sni=example.com#trojan")
+	got := renderQuanXNode(n)
+	for _, frag := range []string{"trojan=192.168.1.1:443, password=pwd", "over-tls=true", "tls-host=example.com", "tls-verification=true", "udp-relay=true"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("qx trojan tls missing %q: %s", frag, got)
+		}
+	}
+	if strings.Contains(got, "obfs=over-tls") {
+		t.Fatalf("qx trojan tls must not use obfs=over-tls: %s", got)
+	}
+}
+
+func TestRenderQuanXTrojanWSS(t *testing.T) {
+	n, _ := parseShareURI("trojan://pwd@192.168.1.1:443?type=ws&path=/path&host=example.com&security=tls&sni=example.com#trojan-wss")
+	got := renderQuanXNode(n)
+	for _, frag := range []string{"obfs=wss", "obfs-host=example.com", "obfs-uri=/path"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("qx trojan wss missing %q: %s", frag, got)
+		}
+	}
+	for _, bad := range []string{"over-tls", "tls-host"} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("qx trojan wss must not carry %q: %s", bad, got)
+		}
+	}
+	// sample.conf: trojan is TLS-only, a plain (non-wss) ws has no line.
+	plain, _ := parseShareURI("trojan://pwd@192.168.1.1:443?type=ws&path=/path&host=example.com#trojan-ws")
+	if got := renderQuanXNode(plain); got != "" {
+		t.Fatalf("qx trojan plain ws must degrade: %s", got)
+	}
+}
+
+func TestRenderQuanXAnyTLSReality(t *testing.T) {
+	n, _ := parseShareURI("anytls://pwd@example.com:443?security=reality&pbk=k4Uxez0sjl8bKaZH2Vgi8-WDFshML51QkxKFLWFIONk&sid=0123456789abcdef&sni=apple.com#anytls")
+	got := renderQuanXNode(n)
+	for _, frag := range []string{"anytls=example.com:443, password=pwd", "over-tls=true", "tls-host=apple.com", "reality-base64-pubkey=k4Uxez0sjl8bKaZH2Vgi8-WDFshML51QkxKFLWFIONk", "reality-hex-shortid=0123456789abcdef", "udp-relay=true"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("qx anytls reality missing %q: %s", frag, got)
+		}
+	}
+	// The panel's anytls export omits the security keyword; anytls is TLS by
+	// protocol definition, so it renders with over-tls=true, not a comment.
+	plain, _ := parseShareURI("anytls://pwd@example.com:443?sni=apple.com&insecure=1#anytls-plain")
+	got = renderQuanXNode(plain)
+	for _, frag := range []string{"anytls=example.com:443, password=pwd", "over-tls=true", "tls-host=apple.com", "tls-verification=false"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("qx anytls plain missing %q: %s", frag, got)
+		}
+	}
+	// anytls off tcp has no sample.conf line.
+	ws, _ := parseShareURI("anytls://pwd@example.com:443?type=ws&path=/ws&security=tls#anytls-ws")
+	if got := renderQuanXNode(ws); got != "" {
+		t.Fatalf("qx anytls over ws must degrade: %s", got)
+	}
+}
+
+func TestRenderQuanXVmessMethodWhitelist(t *testing.T) {
+	cases := map[string]string{
+		"aes-128-gcm":         "method=aes-128-gcm",
+		"chacha20-poly1305":   "method=chacha20-poly1305",
+		"":                    "method=none",
+		"auto":                "method=none",
+		"zero":                "method=none",
+	}
+	for scy, want := range cases {
+		n, _ := parseShareURI("vmess://eyJ2IjoiMiIsInBzIjoidjEiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjUyMzk2ZTA2LTA0MWEtNGNjMi1iZTVjLTg1MjVlYjQ1NzgwOSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0IjoidGNwIiwidHlwZSI6Im5vbmUifQ==#v1")
+		n.Method = scy
+		got := renderQuanXNode(n)
+		if !strings.Contains(got, want) {
+			t.Fatalf("qx vmess scy=%q want %q: %s", scy, want, got)
+		}
+	}
+	for _, scy := range []string{"aes-256-gcm", "aes-128-cfb", "rc4-md5"} {
+		n, _ := parseShareURI("vmess://eyJ2IjoiMiIsInBzIjoidjEiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjUyMzk2ZTA2LTA0MWEtNGNjMi1iZTVjLTg1MjVlYjQ1NzgwOSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0IjoidGNwIiwidHlwZSI6Im5vbmUifQ==#v1")
+		n.Method = scy
+		if got := renderQuanXNode(n); got != "" {
+			t.Fatalf("qx vmess scy=%q must degrade: %s", scy, got)
+		}
+	}
+}
+
+func TestRenderQuanXUnsupportedTransportDegraded(t *testing.T) {
+	// QX has no grpc / xhttp obfs form in sample.conf.
+	for _, uri := range []string{
+		"vless://52396e06-041a-4cc2-be5c-8525eb457809@vless.example.com:443?type=grpc&serviceName=gs&security=tls&sni=example.com#grpc",
+		"vless://52396e06-041a-4cc2-be5c-8525eb457809@vless.example.com:443?type=xhttp&path=/x&security=tls&sni=example.com#xhttp",
+		"trojan://pwd@192.168.1.1:443?type=grpc&serviceName=gs&security=tls&sni=example.com#tgrpc",
+	} {
+		n, _ := parseShareURI(uri)
+		if got := renderQuanXNode(n); got != "" {
+			t.Fatalf("qx must degrade unsupported transport: %s", got)
+		}
+	}
+}
+
+func TestQuanXAlpnHex(t *testing.T) {
+	// sample.conf ss-tls-03: tls-alpn=02683208687474702f312e31 is h2 + http/1.1.
+	if got := quanxAlpnHex("h2,http/1.1"); got != "02683208687474702f312e31" {
+		t.Fatalf("alpn hex = %q", got)
+	}
+	if got := quanxAlpnHex(""); got != "" {
+		t.Fatalf("empty alpn = %q", got)
+	}
+	if got := quanxAlpnHex(" , "); got != "" {
+		t.Fatalf("blank alpn = %q", got)
+	}
+}
+
+func TestRenderQuanXAlpnPassthrough(t *testing.T) {
+	n, _ := parseShareURI("trojan://pwd@192.168.1.1:443?security=tls&sni=example.com&alpn=h2,http/1.1#alpn")
+	got := renderQuanXNode(n)
+	if !strings.Contains(got, "tls-alpn=02683208687474702f312e31") {
+		t.Fatalf("qx alpn missing: %s", got)
 	}
 }
 

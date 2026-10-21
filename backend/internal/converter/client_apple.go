@@ -2,6 +2,7 @@ package converter
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -59,6 +60,8 @@ type vmessLink struct {
 	Host string `json:"host"`
 	Path string `json:"path"`
 	PS   string `json:"ps"`
+	Pbk  string `json:"pbk"`
+	Sid  string `json:"sid"`
 }
 
 // parseShareURI decodes one of the panel's own share links. It is intentionally
@@ -164,6 +167,15 @@ func parseShareURI(uri string) (*shareNode, error) {
 			n.Params["security"] = "reality"
 			if obj.SNI != "" {
 				n.Params["sni"] = obj.SNI
+			}
+			// The panel's vmess builder puts the REALITY keys in the JSON
+			// object (v2rayN field names); fold them like the query-string
+			// protocols carry them or every renderer loses the public key.
+			if obj.Pbk != "" {
+				n.Params["pbk"] = obj.Pbk
+			}
+			if obj.Sid != "" {
+				n.Params["sid"] = obj.Sid
 			}
 		}
 		return n, nil
@@ -716,79 +728,227 @@ func surgeSSPlugin(plugin string) []string {
 
 // ---- Quantumult X ----
 
-// renderQuanXNode renders one share node in QX [server_local] grammar.
+// renderQuanXNode renders one share node in QX [server_local] grammar
+// (sample.conf v1.5.5: keyword=host:port, key=value, …, tag=name).
 func renderQuanXNode(n *shareNode) string {
-	head := fmt.Sprintf("%s=%s:%s", n.Protocol, n.Host, n.Port)
+	head := fmt.Sprintf("%s=%s:%s", quanxProtoKeyword(n.Protocol), n.Host, n.Port)
 	params := []string{}
 	switch n.Protocol {
 	case "ss":
 		if n.Method == "" {
 			return ""
 		}
-		params = append(params, "method="+n.Method, "password="+quoteValue(n.Password))
-		params = append(params, quanxSSPlugin(n.Params["plugin"])...)
-		params = append(params, "udp-relay=true", "tag="+quoteValue(n.Name))
-	case "vmess":
-		params = append(params, "method=none", "password="+quoteValue(n.Password))
-		if n.Params["type"] == "ws" {
-			params = append(params, "obfs=ws", "obfs-uri="+quoteValue(shareParam(n.Params, "path")))
-			if h := shareParam(n.Params, "host"); h != "" {
-				params = append(params, "obfs-host="+h)
+		plugin := n.Params["plugin"]
+		if plugin != "" {
+			name := strings.TrimSpace(strings.SplitN(plugin, ";", 2)[0])
+			if !strings.EqualFold(name, "obfs-local") {
+				// kcptun / shadow-tls / restls / jls wrappers have no QX obfs
+				// counterpart (sample.conf documents obfs=http|tls|ws|wss|
+				// over-tls and the SS plugin forms only).
+				return ""
+			}
+			if sec := n.Params["security"]; sec == "tls" || sec == "reality" {
+				// QX has a single obfs field; simple-obfs and TLS/Reality
+				// cannot travel on the same line.
+				return ""
 			}
 		}
-		params = append(params, quanxTLS(n.Params)...)
-		params = append(params, "udp-relay=true", "tag="+quoteValue(n.Name))
+		params = append(params, "method="+n.Method, "password="+quoteValue(n.Password))
+		params = append(params, quanxSSPlugin(plugin)...)
+	case "vmess":
+		method, ok := quanxVMessMethod(n.Method)
+		if !ok {
+			return ""
+		}
+		params = append(params, "method="+method, "password="+quoteValue(n.Password))
 	case "vless":
 		params = append(params, "method=none", "password="+quoteValue(n.Password))
 		if flow := shareParam(n.Params, "flow"); flow != "" {
 			params = append(params, "vless-flow="+flow)
 		}
-		if n.Params["type"] == "ws" {
-			params = append(params, "obfs=ws", "obfs-uri="+quoteValue(shareParam(n.Params, "path")))
-			if h := shareParam(n.Params, "host"); h != "" {
-				params = append(params, "obfs-host="+h)
-			}
-		}
-		params = append(params, quanxTLS(n.Params)...)
-		params = append(params, "udp-relay=true", "tag="+quoteValue(n.Name))
 	case "trojan":
 		params = append(params, "password="+quoteValue(n.Password))
-		if n.Params["type"] == "ws" {
-			params = append(params, "obfs=ws", "obfs-uri="+quoteValue(shareParam(n.Params, "path")))
-			if h := shareParam(n.Params, "host"); h != "" {
-				params = append(params, "obfs-host="+h)
-			}
-		}
-		params = append(params, quanxTLS(n.Params)...)
-		params = append(params, "udp-relay=true", "tag="+quoteValue(n.Name))
 	case "anytls":
+		if sec := n.Params["security"]; sec != "tls" && sec != "reality" {
+			// anytls is TLS by protocol definition; the panel's anytls export
+			// carries sni/insecure but no security keyword (unlike vless/
+			// trojan), and QX spells AnyTLS TLS as over-tls=true.
+			n.Params["security"] = "tls"
+		}
 		params = append(params, "password="+quoteValue(n.Password))
-		params = append(params, quanxTLS(n.Params)...)
-		params = append(params, "udp-relay=true", "tag="+quoteValue(n.Name))
 	default:
 		return ""
 	}
+	tr, ok := quanxTransport(n)
+	if !ok {
+		return ""
+	}
+	params = append(params, tr...)
+	params = append(params, "udp-relay=true", "tag="+quoteValue(n.Name))
 	return head + ", " + strings.Join(params, ", ")
 }
 
-func quanxTLS(params map[string]string) []string {
+// quanxProtoKeyword maps the panel protocol name to QX's [server_local]
+// keyword: sample.conf writes shadowsocks=… — there is no ss= form.
+func quanxProtoKeyword(proto string) string {
+	if proto == "ss" {
+		return "shadowsocks"
+	}
+	return proto
+}
+
+// quanxObfsTLS reports whether the protocol family spells TLS the ss/vmess/
+// vless way — obfs=over-tls with the SNI in obfs-host — instead of the
+// http/socks5/trojan/anytls way, over-tls=true with tls-host. sample.conf
+// demonstrates both styles (ss-tls-01 vs trojan-tls-03).
+func quanxObfsTLS(proto string) bool {
+	switch proto {
+	case "ss", "vmess", "vless":
+		return true
+	}
+	return false
+}
+
+// quanxVMessMethod maps a VMess cipher onto the method values sample.conf
+// documents for QX: none, aes-128-gcm or chacha20-poly1305 (aead defaults to
+// true). zero/none/auto — "auto" is the panel's own default — carry no body
+// cipher on the wire and render as method=none; any other cipher has no QX
+// counterpart and must degrade to a comment.
+func quanxVMessMethod(method string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "", "none", "zero", "auto":
+		return "none", true
+	case "aes-128-gcm", "chacha20-poly1305":
+		return strings.ToLower(strings.TrimSpace(method)), true
+	}
+	return "", false
+}
+
+// quanxReality renders the REALITY keys sample.conf documents for every
+// TLS-capable protocol (ss-tls-reality-uot-01, vmess-wss-reality-01,
+// vless-tls-reality-vision-01, trojan-tls-reality-01, anytls-reality-tls-01).
+func quanxReality(params map[string]string) []string {
 	out := []string{}
-	if params["security"] == "reality" {
-		out = append(out, "over-tls=true")
-		if pbk := shareParam(params, "pbk"); pbk != "" {
-			out = append(out, "reality-base64-pubkey="+pbk)
-		}
-		if sid := shareParam(params, "sid"); sid != "" {
-			out = append(out, "reality-hex-shortid="+sid)
-		}
-	} else if params["security"] == "tls" {
-		out = append(out, "over-tls=true")
+	if pbk := shareParam(params, "pbk"); pbk != "" {
+		out = append(out, "reality-base64-pubkey="+quoteValue(pbk))
 	}
-	if sni := shareParam(params, "sni"); sni != "" {
-		out = append(out, "tls-host="+sni)
+	if sid := shareParam(params, "sid"); sid != "" {
+		out = append(out, "reality-hex-shortid="+quoteValue(sid))
 	}
-	out = append(out, "tls-verification="+strconv.FormatBool(!shareInsecure(params)))
 	return out
+}
+
+// quanxAlpnHex encodes an ALPN list the way sample.conf documents the
+// tls-alpn parameter: tls-alpn=02683208687474702f312e31 decodes to h2 plus
+// http/1.1, i.e. each entry as one length byte followed by its ASCII bytes.
+func quanxAlpnHex(alpn string) string {
+	var b []byte
+	for _, entry := range strings.Split(alpn, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" || len(entry) > 255 {
+			continue
+		}
+		b = append(b, byte(len(entry)))
+		b = append(b, []byte(entry)...)
+	}
+	if len(b) == 0 {
+		return ""
+	}
+	return hex.EncodeToString(b)
+}
+
+// quanxTLSOn emits the protocol family's TLS switch plus its SNI carrier.
+func quanxTLSOn(obfsTLS bool, sni string) []string {
+	if obfsTLS {
+		out := []string{"obfs=over-tls"}
+		if sni != "" {
+			out = append(out, "obfs-host="+quoteValue(sni))
+		}
+		return out
+	}
+	out := []string{"over-tls=true"}
+	if sni != "" {
+		out = append(out, "tls-host="+quoteValue(sni))
+	}
+	return out
+}
+
+// quanxTransport renders QX's obfs / TLS parameters for one node. sample.conf
+// documents only these transports: plain TCP (optionally wrapped by the
+// family's TLS switch, reality keys, tls-verification and tls-alpn),
+// WebSocket (obfs=ws, obfs=wss with obfs-host/obfs-uri) and plain HTTP
+// (obfs=http). grpc / xhttp / quic / kcp links have no QX representation, so
+// the second return is false and the caller degrades the node to a comment
+// instead of a silently broken line.
+func quanxTransport(n *shareNode) ([]string, bool) {
+	sec := n.Params["security"]
+	switch n.Params["type"] {
+	case "", "tcp", "none":
+	case "ws", "http":
+	default:
+		return nil, false
+	}
+	// Trojan is TLS-only by design; sample.conf never shows it without
+	// over-tls (or reality keys), and never shows anytls off tcp.
+	if n.Protocol == "trojan" && sec != "tls" && sec != "reality" {
+		return nil, false
+	}
+	if n.Protocol == "anytls" && n.Params["type"] != "" && n.Params["type"] != "tcp" && n.Params["type"] != "none" {
+		return nil, false
+	}
+	// sample.conf's trojan note: obfs is only supported with websocket over tls.
+	if n.Protocol == "trojan" && n.Params["type"] == "ws" && sec != "tls" && sec != "reality" {
+		return nil, false
+	}
+	obfsTLS := quanxObfsTLS(n.Protocol)
+	switch n.Params["type"] {
+	case "ws":
+		obfs := "ws"
+		if sec == "tls" || sec == "reality" {
+			obfs = "wss"
+		}
+		out := []string{"obfs=" + obfs}
+		if h := shareParam(n.Params, "host", "sni"); h != "" {
+			out = append(out, "obfs-host="+quoteValue(h))
+		}
+		if p := shareParam(n.Params, "path"); p != "" {
+			out = append(out, "obfs-uri="+quoteValue(p))
+		}
+		if sec == "reality" {
+			out = append(out, quanxReality(n.Params)...)
+		}
+		return out, true
+	case "http":
+		// sample.conf documents obfs=http on plain (non-TLS) lines only.
+		if sec == "tls" || sec == "reality" {
+			return nil, false
+		}
+		out := []string{"obfs=http"}
+		if h := shareParam(n.Params, "host", "sni"); h != "" {
+			out = append(out, "obfs-host="+quoteValue(h))
+		}
+		if p := shareParam(n.Params, "path"); p != "" {
+			out = append(out, "obfs-uri="+quoteValue(p))
+		}
+		return out, true
+	}
+	// Plain TCP: the family's TLS switch, plus reality keys or the
+	// verification/alpn pair sample.conf shows next to it.
+	switch sec {
+	case "reality":
+		out := quanxTLSOn(obfsTLS, shareParam(n.Params, "sni"))
+		return append(out, quanxReality(n.Params)...), true
+	case "tls":
+		out := quanxTLSOn(obfsTLS, shareParam(n.Params, "sni"))
+		out = append(out, "tls-verification="+strconv.FormatBool(!shareInsecure(n.Params)))
+		if alpn := shareParam(n.Params, "alpn"); alpn != "" {
+			if h := quanxAlpnHex(alpn); h != "" {
+				out = append(out, "tls-alpn="+h)
+			}
+		}
+		return out, true
+	}
+	return nil, true
 }
 
 func quanxSSPlugin(plugin string) []string {
