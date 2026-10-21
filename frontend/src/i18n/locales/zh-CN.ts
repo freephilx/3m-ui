@@ -729,6 +729,9 @@ export default {
     "subMihomo": "Mihomo 订阅",
     "subV2ray": "V2Ray / Base64（v2rayNG / Hiddify）",
     "subSingbox": "Sing-box 订阅",
+    "subLoon": "Loon 订阅",
+    "subSurge": "Surge 订阅",
+    "subQuanx": "Quantumult X 订阅",
     "qrHint": "二维码默认对应 Mihomo；经典客户端请粘贴 V2Ray 链接",
     "bindRemoteHint": "远程集群节点（需先在多机节点中同步镜像）",
     "selectRemoteNodes": "选择远程节点",
@@ -1149,7 +1152,7 @@ export default {
     "noNodes": "该用户未绑定节点，请先在用户管理中绑定。",
     "uri": "URI",
     "loadUri": "加载 URI",
-    "subHint": "将链接粘贴到客户端。默认（无 target）为 Mihomo YAML；target=v2ray 为经典 Base64 URI 列表。",
+    "subHint": "将链接粘贴到客户端。不带 ?target= 时按 User-Agent 自动匹配（Clash/Mihomo → YAML，v2rayNG → Base64，sing-box → JSON，Loon / Surge / Quantumult X → 各自原生格式）。响应头含流量/到期信息（Subscription-Userinfo）。",
     "subHtml": "订阅信息页 (HTML)",
     "exportAll": "导出全部订阅链接",
     "exported": "已导出订阅链接"

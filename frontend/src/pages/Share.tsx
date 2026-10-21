@@ -164,11 +164,14 @@ const SharePage: React.FC = () => {
             type="info"
             showIcon
             style={{ marginBottom: isMobile ? 10 : 16 }}
-            message={t('share.subHint') || 'Copy into the client. Without ?target=, format follows User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON). Headers include traffic/expiry (Subscription-Userinfo).'}
+            message={t('share.subHint') || 'Copy into the client. Without ?target=, format follows User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → their native formats). Headers include traffic/expiry (Subscription-Userinfo).'}
           />
           <CopyField label={t('users.subMihomo') || 'Mihomo / Clash YAML'} value={shareUrl} qr />
           <CopyField label={t('users.subV2ray') || 'V2Ray / Base64'} value={withTarget(shareUrl, 'v2ray')} />
           <CopyField label={t('users.subSingbox') || 'Sing-box JSON'} value={withTarget(shareUrl, 'singbox')} />
+          <CopyField label={t('users.subLoon') || 'Loon'} value={withTarget(shareUrl, 'loon')} />
+          <CopyField label={t('users.subSurge') || 'Surge'} value={withTarget(shareUrl, 'surge')} />
+          <CopyField label={t('users.subQuanx') || 'Quantumult X'} value={withTarget(shareUrl, 'quanx')} />
           <CopyField label={t('share.subHtml') || 'Subscription info page (HTML)'} value={`${shareUrl}${shareUrl.includes('?') ? '&' : '?'}html=1`} />
           <Button icon={<IconRotateToken />} onClick={onRotate} loading={subLoading}>
             {t('users.rotateSub') || 'Rotate subscription token'}

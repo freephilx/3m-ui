@@ -728,6 +728,9 @@ export default {
     "subMihomo": "Mihomo / Clash YAML",
     "subV2ray": "V2Ray / Base64（v2rayNG / Hiddify）",
     "subSingbox": "Sing-box 購読",
+    "subLoon": "Loon 購読",
+    "subSurge": "Surge 購読",
+    "subQuanx": "Quantumult X 購読",
     "qrHint": "QR = デフォルト（Mihomo）。クラシッククライアントには V2Ray URL を貼り付けてください。",
     "bindRemoteHint": "Remote cluster nodes (sync mirrors on the Cluster page first)",
     "selectRemoteNodes": "リモートノードを選択",
@@ -1148,7 +1151,6 @@ export default {
     "noNodes": "ノード未バインド。先にユーザー管理でバインドしてください。",
     "uri": "URI",
     "loadUri": "URI を読み込み",
-    "subHint": "Paste into the client. Default (no target) is Mihomo YAML; target=v2ray is classic Base64 URI list.",
     "subHtml": "情報ページ (HTML)",
     "exportAll": "すべての購読リンクをエクスポート",
     "exported": "購読リンクをエクスポートしました"

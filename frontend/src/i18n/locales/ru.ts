@@ -728,6 +728,9 @@ export default {
     "subMihomo": "Mihomo / Clash YAML",
     "subV2ray": "V2Ray / Base64 (v2rayNG / Hiddify)",
     "subSingbox": "Подписка Sing-box",
+    "subLoon": "Подписка Loon",
+    "subSurge": "Подписка Surge",
+    "subQuanx": "Подписка Quantumult X",
     "qrHint": "QR = по умолчанию (Mihomo). Вставьте URL V2Ray в классические клиенты.",
     "bindRemoteHint": "Remote cluster nodes (sync mirrors on the Cluster page first)",
     "selectRemoteNodes": "Выбрать удалённые узлы",
@@ -1148,7 +1151,6 @@ export default {
     "noNodes": "Нет привязанных узлов. Сначала привяжите в Пользователях.",
     "uri": "URI",
     "loadUri": "Загрузить URI",
-    "subHint": "Paste into the client. Default (no target) is Mihomo YAML; target=v2ray is classic Base64 URI list.",
     "subHtml": "Инфо-страница (HTML)",
     "exportAll": "Экспортировать все ссылки подписки",
     "exported": "Ссылки подписки экспортированы"

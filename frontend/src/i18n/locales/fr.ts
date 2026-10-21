@@ -728,6 +728,9 @@ export default {
     "subMihomo": "Mihomo / Clash YAML",
     "subV2ray": "V2Ray / Base64 (v2rayNG / Hiddify)",
     "subSingbox": "Abonnement Sing-box",
+    "subLoon": "Abonnement Loon",
+    "subSurge": "Abonnement Surge",
+    "subQuanx": "Abonnement Quantumult X",
     "qrHint": "QR = par défaut (Mihomo). Collez l'URL V2Ray dans les clients classiques.",
     "bindRemoteHint": "Remote cluster nodes (sync mirrors on the Cluster page first)",
     "selectRemoteNodes": "Sélectionner les nœuds distants",
@@ -1148,7 +1151,6 @@ export default {
     "noNodes": "Aucun nœud lié. Liez d’abord sous Utilisateurs.",
     "uri": "URI",
     "loadUri": "Charger l’URI",
-    "subHint": "Paste into the client. Default (no target) is Mihomo YAML; target=v2ray is classic Base64 URI list.",
     "subHtml": "Page d’info (HTML)",
     "exportAll": "Exporter tous les liens d’abonnement",
     "exported": "Liens d’abonnement exportés"

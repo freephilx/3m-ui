@@ -728,6 +728,9 @@ export default {
     "subMihomo": "Mihomo / Clash YAML",
     "subV2ray": "V2Ray / Base64 (v2rayNG / Hiddify)",
     "subSingbox": "Sing-box subscription",
+    "subLoon": "Loon subscription",
+    "subSurge": "Surge subscription",
+    "subQuanx": "Quantumult X subscription",
     "qrHint": "QR = default (Mihomo). Paste the V2Ray URL into classic clients.",
     "bindRemoteHint": "Remote cluster nodes (sync mirrors on the Cluster page first)",
     "selectRemoteNodes": "Select remote nodes",
@@ -1148,7 +1151,6 @@ export default {
     "noNodes": "Chưa gán nút. Hãy gán trong Người dùng trước.",
     "uri": "URI",
     "loadUri": "Tải URI",
-    "subHint": "Paste into the client. Default (no target) is Mihomo YAML; target=v2ray is classic Base64 URI list.",
     "subHtml": "Trang thông tin (HTML)",
     "exportAll": "Xuất tất cả liên kết đăng ký",
     "exported": "Đã xuất liên kết đăng ký"
