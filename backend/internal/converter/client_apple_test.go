@@ -136,16 +136,16 @@ func TestRenderLoonHysteria2GeckoSkipped(t *testing.T) {
 	}
 }
 
-func TestRenderLoonAnyTLSReality(t *testing.T) {
+func TestRenderLoonAnyTLSRealitySkipped(t *testing.T) {
+	// AnyTLS + REALITY is not emitted for Loon: the password-only AnyTLS form
+	// is the one Loon reliably parses; reality anytls nodes degrade upstream.
 	n, _ := parseShareURI("anytls://pw@at.example.com:443?security=reality&pbk=dR2euO5X-8ENLeBjO9ZfXQ2RDlg_uBEHBHBNBQTapyU&sid=a0997793b8119118&sni=www.microsoft.com#at-r")
 	got := renderLoonNode(n)
-	for _, frag := range []string{"AnyTLS,at.example.com,443", "public-key=dR2euO5X-8ENLeBjO9ZfXQ2RDlg_uBEHBHBNBQTapyU", "short-id=a0997793b8119118", "sni=www.microsoft.com"} {
-		if !strings.Contains(got, frag) {
-			t.Fatalf("loon anytls reality missing %q: %s", frag, got)
-		}
+	if strings.Contains(got, "public-key") || strings.Contains(got, "short-id") || strings.Contains(got, "over-tls") {
+		t.Fatalf("loon anytls must not carry reality/tls args: %s", got)
 	}
-	if strings.Contains(got, "over-tls") {
-		t.Fatalf("loon anytls must not carry over-tls: %s", got)
+	if !strings.Contains(got, "AnyTLS,at.example.com,443,pw") || !strings.Contains(got, "sni=www.microsoft.com") {
+		t.Fatalf("loon anytls base args missing: %s", got)
 	}
 }
 
@@ -226,6 +226,39 @@ func TestSurgeSkipMsg(t *testing.T) {
 	}
 	if _, skip := surgeSkipMsg(&shareNode{Protocol: "hysteria2", Params: map[string]string{}}); skip {
 		t.Fatal("surge should keep hysteria2")
+	}
+	// Surge VMess only accepts aes-128-gcm / chacha20-ietf-poly1305.
+	if reason, skip := surgeSkipMsg(&shareNode{Protocol: "vmess", Method: "aes-256-gcm", Params: map[string]string{}}); !skip || !strings.Contains(reason, "aes-128-gcm") {
+		t.Fatalf("surge should skip aes-256-gcm vmess: skip=%v reason=%q", skip, reason)
+	}
+	if _, skip := surgeSkipMsg(&shareNode{Protocol: "vmess", Method: "chacha20-ietf-poly1305", Params: map[string]string{}}); skip {
+		t.Fatal("surge should keep chacha20 vmess")
+	}
+}
+
+func TestRenderSurgeVmessMethodWhitelist(t *testing.T) {
+	// chacha20-ietf-poly1305 is the only non-default Surge vmess method we emit.
+	n := &shareNode{Name: "vc", Protocol: "vmess", Host: "vm.example.com", Port: "443", Password: "uuid-x", Method: "chacha20-ietf-poly1305"}
+	if got := renderSurgeNode(n); !strings.Contains(got, "encrypt-method=chacha20-ietf-poly1305") || strings.Contains(got, "vmess-aead") {
+		t.Fatalf("surge chacha20 vmess wrong: %s", got)
+	}
+	// aes-128-gcm may be explicit or Surge's default; both accepted, but never vmess-aead.
+	n2 := &shareNode{Name: "vg", Protocol: "vmess", Host: "vm.example.com", Port: "443", Password: "uuid-x", Method: "aes-128-gcm"}
+	if got := renderSurgeNode(n2); strings.Contains(got, "vmess-aead") {
+		t.Fatalf("surge aes-128-gcm vmess should be explicit: %s", got)
+	}
+}
+
+func TestRenderSurgeAlpnPassthrough(t *testing.T) {
+	// alpn is a shared TLS parameter for every TLS/QUIC policy.
+	n, _ := parseShareURI(`trojan://pw@tj.example.com:443?alpn=h2%2Chttp%2F1.1&sni=tj.example.com#tj`)
+	got := renderSurgeNode(n)
+	if !strings.Contains(got, `alpn="h2,http/1.1"`) {
+		t.Fatalf("surge trojan alpn not quoted-passthrough: %s", got)
+	}
+	n2, _ := parseShareURI(`anytls://pw@at.example.com:443?alpn=h3#at`)
+	if got := renderSurgeNode(n2); !strings.Contains(got, "alpn=h3") {
+		t.Fatalf("surge anytls alpn missing: %s", got)
 	}
 }
 

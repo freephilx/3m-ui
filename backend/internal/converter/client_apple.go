@@ -417,17 +417,6 @@ func renderLoonNode(n *shareNode) string {
 		b.WriteString(loonTLSTail(parts, n.Params, ""))
 	case "anytls":
 		parts := []string{tag, "AnyTLS", n.Host, n.Port, quoteValue(n.Password)}
-		// Loon documents public-key/short-id for AnyTLS + REALITY
-		// (nsloon.app/docs/Node, AnyTLS section); no over-tls argument exists
-		// because AnyTLS always carries TLS itself.
-		if n.Params["security"] == "reality" {
-			if pbk := shareParam(n.Params, "pbk"); pbk != "" {
-				parts = append(parts, "public-key="+quoteValue(pbk))
-			}
-			if sid := shareParam(n.Params, "sid"); sid != "" {
-				parts = append(parts, "short-id="+sid)
-			}
-		}
 		if sni := shareParam(n.Params, "sni"); sni != "" {
 			parts = append(parts, "sni="+sni)
 		}
@@ -587,13 +576,17 @@ func renderSurgeNode(n *shareNode) string {
 		b.WriteString(joinNodeLine(parts))
 	case "vmess":
 		// Surge vmess syntax: username=<UUID>[, encrypt-method=|vmess-aead=true].
+		// Methods outside aes-128-gcm/chacha20-ietf-poly1305 are dropped
+		// upstream by surgeSkipMsg (Surge has no representation).
 		params := []string{"username=" + n.Password}
 		switch strings.ToLower(n.Method) {
-		case "chacha20-ietf-poly1305", "aes-128-gcm", "aes-192-gcm", "aes-256-gcm", "xchacha20-ietf-poly1305":
+		case "chacha20-ietf-poly1305":
+			params = append(params, "encrypt-method="+n.Method)
+		case "aes-128-gcm":
 			params = append(params, "encrypt-method="+n.Method)
 		default:
-			// "" / auto / zero: Surge's default is aes-128-gcm with AEAD off;
-			// our nodes always use the AEAD handshake.
+			// "" / auto / other aead defaults: Surge's default is aes-128-gcm
+			// with the AEAD handshake, matching our nodes.
 			params = append(params, "vmess-aead=true")
 		}
 		if n.Params["type"] == "ws" {
@@ -609,6 +602,9 @@ func renderSurgeNode(n *shareNode) string {
 			params = append(params, "tls=true")
 			if sni := shareParam(n.Params, "sni"); sni != "" {
 				params = append(params, "sni="+sni)
+			}
+			if alpn := shareParam(n.Params, "alpn"); alpn != "" {
+				params = append(params, "alpn="+quoteValue(alpn))
 			}
 			if shareInsecure(n.Params) {
 				params = append(params, "skip-cert-verify=true")
@@ -630,6 +626,11 @@ func renderSurgeNode(n *shareNode) string {
 		if sni := shareParam(n.Params, "sni"); sni != "" {
 			params = append(params, "sni="+sni)
 		}
+		// alpn is a shared TLS parameter (surfaces on the Trojan full example
+		// as alpn="h2,http/1.1"); Surge quotes multi-entry values itself.
+		if alpn := shareParam(n.Params, "alpn"); alpn != "" {
+			params = append(params, "alpn="+quoteValue(alpn))
+		}
 		if shareInsecure(n.Params) {
 			params = append(params, "skip-cert-verify=true")
 		}
@@ -639,6 +640,9 @@ func renderSurgeNode(n *shareNode) string {
 		parts := []string{tag, "anytls", n.Host, n.Port, "password=" + quoteValue(n.Password)}
 		if sni := shareParam(n.Params, "sni"); sni != "" {
 			parts = append(parts, "sni="+sni)
+		}
+		if alpn := shareParam(n.Params, "alpn"); alpn != "" {
+			parts = append(parts, "alpn="+quoteValue(alpn))
 		}
 		if shareInsecure(n.Params) {
 			parts = append(parts, "skip-cert-verify=true")
@@ -928,6 +932,18 @@ func GenerateUserLoonSubscription(db *gorm.DB, pu models.ProxyUser, req *http.Re
 	}, db, pu, req, gen)
 }
 
+// surgeVMessOK reports whether a VMess encryption method has a Surge
+// counterpart. manual.nssurge.com vmess page: "Optional, aes-128-gcm or
+// chacha20-ietf-poly1305, default: aes-128-gcm" — anything else has no
+// Surge representation and must degrade to a comment, not a broken line.
+func surgeVMessOK(method string) bool {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "aes-128-gcm", "chacha20-ietf-poly1305", "auto", "":
+		return true
+	}
+	return false
+}
+
 // surgeSkipMsg reports nodes Surge cannot express at all: VLESS (absent from
 // Surge's protocol list) and reality transports (no public-key/short-id
 // parameters exist in Surge's TLS argument set).
@@ -938,6 +954,9 @@ func surgeSkipMsg(n *shareNode) (string, bool) {
 	case "trojan", "vmess":
 		if n.Params["security"] == "reality" {
 			return "Surge 不支持 REALITY 传输", true
+		}
+		if n.Protocol == "vmess" && !surgeVMessOK(n.Method) {
+			return "Surge VMess 仅支持 aes-128-gcm / chacha20-ietf-poly1305 加密", true
 		}
 	}
 	return "", false
