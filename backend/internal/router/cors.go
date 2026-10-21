@@ -67,12 +67,12 @@ func SecurityHeaders() gin.HandlerFunc {
 	// tag in frontend/index.html. script-src has no 'unsafe-inline' —
 	// the SPA is built by Vite into external files only — while
 	// style-src keeps it because React inline style={{...}} (350+ uses)
-	// needs it. img-src allows https: for remote icons (flags, providers).
+	// needs it. img-src is 'self' + data: only - a SPA source audit found no remote image loading (every <img> uses /logo.png, no flag/avatar library), so https: is dropped to close the image-exfil gap real-browser testing exposed.
 	const csp = "default-src 'self'; " +
 		"script-src 'self'; " +
 		"worker-src 'self' blob:; " +
 		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data: https:; " +
+		"img-src 'self' data:; " +
 		"font-src 'self' data:; " +
 		"connect-src 'self'; " +
 		"frame-ancestors 'none'; " +
