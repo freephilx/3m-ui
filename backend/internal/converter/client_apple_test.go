@@ -168,6 +168,55 @@ func TestRenderLoonVLESSReality(t *testing.T) {
 	}
 }
 
+func TestRenderLoonHTTPTransport(t *testing.T) {
+	// nsloon.app/en/docs/Node: VMess/VLESS support tcp, ws and http; "host
+	// and path apply to WebSocket or HTTP transports".
+	n, _ := parseShareURI("vless://uuid@vless.example.com:80?type=http&path=/h2&host=cdn.example.com#h2")
+	got := renderLoonNode(n)
+	for _, frag := range []string{"transport=http", "path=/h2", "host=cdn.example.com"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("loon vless http missing %q: %s", frag, got)
+		}
+	}
+	vm, _ := parseShareURI("vmess://eyJ2IjoiMiIsInBzIjoiaDIiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI4MCIsImlkIjoiNTIzOTZlMDYtMDQxYS00Y2MyLWJlNWMtODUyNWViNDU3ODA5IiwiYWlkIjoiMCIsInNjeSI6ImF1dG8iLCJuZXQiOiJodHRwIiwidHlwZSI6Im5vbmUiLCJwYXRoIjoiL2gyIiwiaG9zdCI6ImNkbi5leGFtcGxlLmNvbSJ9#h2")
+	got = renderLoonNode(vm)
+	for _, frag := range []string{"VMess", "transport=http", "path=/h2", "host=cdn.example.com"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("loon vmess http missing %q: %s", frag, got)
+		}
+	}
+}
+
+func TestRenderLoonTrojanHTTPAsWebSocket(t *testing.T) {
+	// Loon docs: trojan supports tcp and ws, "for compatibility,
+	// transport=http is handled as WebSocket".
+	n, _ := parseShareURI("trojan://pwd@trojan.example.com:443?type=http&path=/t&host=cdn.example.com&security=tls&sni=cdn.example.com#t")
+	got := renderLoonNode(n)
+	for _, frag := range []string{"Trojan", "transport=ws", "path=/t", "host=cdn.example.com", "over-tls=true"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("loon trojan http-as-ws missing %q: %s", frag, got)
+		}
+	}
+}
+
+func TestRenderLoonUnsupportedTransportDegraded(t *testing.T) {
+	// Loon's transport vocabulary (tcp/ws/http) has no grpc / xhttp form;
+	// those links used to fall through to a silently wrong transport=tcp.
+	for _, uri := range []string{
+		"vless://uuid@vless.example.com:443?type=grpc&serviceName=gs&security=tls&sni=example.com#g",
+		"vless://uuid@vless.example.com:443?type=xhttp&path=/x&security=tls&sni=example.com#x",
+		"vless://uuid@vless.example.com:443?type=quic&security=tls&sni=example.com#q",
+		"vmess://eyJ2IjoiMiIsInBzIjoiZyIsImFkZCI6InZtLmV4YW1wbGUuY29tIiwicG9ydCI6IjQ0MyIsImlkIjoiNTIzOTZlMDYtMDQxYS00Y2MyLWJlNWMtODUyNWViNDU3ODA5IiwiYWlkIjoiMCIsInNjeSI6ImF1dG8iLCJuZXQiOiJncnBjIiwidHlwZSI6Im5vbmUiLCJ0bHMiOiJ0bHMiLCJzbmkiOiJ2bS5leGFtcGxlLmNvbSJ9#g",
+		"trojan://pwd@trojan.example.com:443?type=xhttp&path=/x&security=tls&sni=cdn.example.com#x",
+		"anytls://pwd@any.example.com:443?type=ws&path=/ws&security=tls&sni=any.example.com#w",
+	} {
+		n, _ := parseShareURI(uri)
+		if got := renderLoonNode(n); got != "" {
+			t.Fatalf("loon must degrade unsupported transport: %s", got)
+		}
+	}
+}
+
 func TestRenderSurgeHysteria2(t *testing.T) {
 	n, _ := parseShareURI("hy2://pw@hy2.example.com:443,1234;5000-6000?sni=hy2.example.com&insecure=1&obfs=salamander&obfs-password=obfspw123&down=100+Mbps#surge-node")
 	got := renderSurgeNode(n)

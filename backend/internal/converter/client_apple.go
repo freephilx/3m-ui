@@ -148,13 +148,21 @@ func parseShareURI(uri string) (*shareNode, error) {
 			n.Method = "auto"
 		}
 		// Fold vmess JSON transport fields into the shared param vocabulary.
-		if obj.Net == "ws" {
-			n.Params["type"] = "ws"
+		switch obj.Net {
+		case "ws", "http":
+			n.Params["type"] = obj.Net
 			if obj.Path != "" {
 				n.Params["path"] = obj.Path
 			}
 			if obj.Host != "" {
 				n.Params["host"] = obj.Host
+			}
+		case "grpc":
+			// v2rayN carries the gRPC service name in "path"; fold it or the
+			// transport is invisible and every renderer falls back to tcp.
+			n.Params["type"] = "grpc"
+			if obj.Path != "" {
+				n.Params["serviceName"] = obj.Path
 			}
 		}
 		if obj.TLS == "tls" {
@@ -349,6 +357,19 @@ func commentLine(name, reason string) string {
 
 // ---- Loon ----
 
+// loonTransportOK reports whether Loon's transport= vocabulary covers the
+// node's transport. nsloon.app/en/docs/Node: VMess/VLESS support tcp, ws and
+// http ("host and path apply to WebSocket or HTTP transports"); Trojan
+// supports tcp and ws. grpc / xhttp / quic / kcp have no Loon line at all and
+// must degrade to a comment instead of a silently wrong tcp node.
+func loonTransportOK(typ string) bool {
+	switch typ {
+	case "", "tcp", "none", "ws", "http":
+		return true
+	}
+	return false
+}
+
 // renderLoonNode renders one share node in Loon [Proxy] grammar.
 func renderLoonNode(n *shareNode) string {
 	var b strings.Builder
@@ -392,10 +413,15 @@ func renderLoonNode(n *shareNode) string {
 		parts = append(parts, "udp=true", "block-quic=false")
 		b.WriteString(joinNodeLine(parts))
 	case "vmess":
+		if !loonTransportOK(n.Params["type"]) {
+			return ""
+		}
 		parts := []string{tag, "VMess", n.Host, n.Port, quoteValue(n.Method), quoteValue(n.Password)}
 		transport := "tcp"
-		if n.Params["type"] == "ws" {
-			transport = "ws"
+		switch n.Params["type"] {
+		case "ws", "http":
+			transport = n.Params["type"]
+			// "host and path apply to WebSocket or HTTP transports" (docs).
 			parts = append(parts, "path="+quoteValue(shareParam(n.Params, "path")))
 			if host := shareParam(n.Params, "host"); host != "" {
 				parts = append(parts, "host="+host)
@@ -404,10 +430,14 @@ func renderLoonNode(n *shareNode) string {
 		parts = append(parts, "transport="+transport, "alterId=0")
 		b.WriteString(loonTLSTail(parts, n.Params, shareParam(n.Params, "flow")))
 	case "vless":
+		if !loonTransportOK(n.Params["type"]) {
+			return ""
+		}
 		parts := []string{tag, "VLESS", n.Host, n.Port, quoteValue(n.Password)}
 		transport := "tcp"
-		if n.Params["type"] == "ws" {
-			transport = "ws"
+		switch n.Params["type"] {
+		case "ws", "http":
+			transport = n.Params["type"]
 			parts = append(parts, "path="+quoteValue(shareParam(n.Params, "path")))
 			if host := shareParam(n.Params, "host"); host != "" {
 				parts = append(parts, "host="+host)
@@ -416,9 +446,15 @@ func renderLoonNode(n *shareNode) string {
 		parts = append(parts, "transport="+transport)
 		b.WriteString(loonTLSTail(parts, n.Params, shareParam(n.Params, "flow")))
 	case "trojan":
+		if !loonTransportOK(n.Params["type"]) {
+			return ""
+		}
 		parts := []string{tag, "Trojan", n.Host, n.Port, quoteValue(n.Password)}
 		transport := "tcp"
-		if n.Params["type"] == "ws" {
+		switch n.Params["type"] {
+		case "ws", "http":
+			// Loon docs: trojan supports tcp and ws, "for compatibility,
+			// transport=http is handled as WebSocket".
 			transport = "ws"
 			parts = append(parts, "path="+quoteValue(shareParam(n.Params, "path")))
 			if host := shareParam(n.Params, "host"); host != "" {
@@ -428,6 +464,10 @@ func renderLoonNode(n *shareNode) string {
 		parts = append(parts, "transport="+transport)
 		b.WriteString(loonTLSTail(parts, n.Params, ""))
 	case "anytls":
+		if t := n.Params["type"]; t != "" && t != "tcp" && t != "none" {
+			// Loon's AnyTLS section documents plain tcp only.
+			return ""
+		}
 		parts := []string{tag, "AnyTLS", n.Host, n.Port, quoteValue(n.Password)}
 		if sni := shareParam(n.Params, "sni"); sni != "" {
 			parts = append(parts, "sni="+sni)
@@ -546,6 +586,19 @@ func hopFormatLoon(v string) string {
 
 // ---- Surge ----
 
+// surgeTransportOK reports whether Surge's transport vocabulary covers the
+// node's transport. manual.nssurge.com policies/vmess and policies/trojan
+// document ws (with ws-path / ws-headers) as the only optional transport
+// layer — there is no grpc / xhttp / http option, so those links must degrade
+// to a comment instead of a silently wrong plain-TLS node.
+func surgeTransportOK(typ string) bool {
+	switch typ {
+	case "", "tcp", "none", "ws":
+		return true
+	}
+	return false
+}
+
 // renderSurgeNode renders one share node in Surge [Proxy] grammar.
 func renderSurgeNode(n *shareNode) string {
 	var b strings.Builder
@@ -590,6 +643,9 @@ func renderSurgeNode(n *shareNode) string {
 		// Surge vmess syntax: username=<UUID>[, encrypt-method=|vmess-aead=true].
 		// Methods outside aes-128-gcm/chacha20-ietf-poly1305 are dropped
 		// upstream by surgeSkipMsg (Surge has no representation).
+		if !surgeTransportOK(n.Params["type"]) {
+			return ""
+		}
 		params := []string{"username=" + n.Password}
 		switch strings.ToLower(n.Method) {
 		case "chacha20-ietf-poly1305":
@@ -625,6 +681,9 @@ func renderSurgeNode(n *shareNode) string {
 		parts := append([]string{tag, "vmess", n.Host, n.Port}, params...)
 		b.WriteString(joinNodeLine(parts))
 	case "trojan":
+		if !surgeTransportOK(n.Params["type"]) {
+			return ""
+		}
 		params := []string{"password=" + quoteValue(n.Password)}
 		if n.Params["type"] == "ws" {
 			params = append(params, "ws=true")
@@ -649,6 +708,10 @@ func renderSurgeNode(n *shareNode) string {
 		parts := append([]string{tag, "trojan", n.Host, n.Port}, params...)
 		b.WriteString(joinNodeLine(parts))
 	case "anytls":
+		if t := n.Params["type"]; t != "" && t != "tcp" && t != "none" {
+			// Surge's AnyTLS policy documents plain tcp only.
+			return ""
+		}
 		parts := []string{tag, "anytls", n.Host, n.Port, "password=" + quoteValue(n.Password)}
 		if sni := shareParam(n.Params, "sni"); sni != "" {
 			parts = append(parts, "sni="+sni)
