@@ -315,6 +315,15 @@ func TestSecurityHeadersCSP(t *testing.T) {
 		if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
 			t.Fatalf("%s: script-src must not allow inline: %q", path, csp)
 		}
+		// img-src must be same-origin + data: only. A SPA source audit
+		// found no remote image loading, so https: is omitted to close the
+		// image-exfiltration gap surfaced during real-browser testing.
+		if !strings.Contains(csp, "img-src 'self' data:") {
+			t.Fatalf("%s: CSP %q missing img-src 'self' data:", path, csp)
+		}
+		if strings.Contains(csp, "img-src 'self' data: https:") || strings.Contains(csp, "img-src 'self' https:") {
+			t.Fatalf("%s: img-src must not allow https:: %q", path, csp)
+		}
 		if got := w.Header().Get("X-Frame-Options"); got != "DENY" {
 			t.Fatalf("%s: X-Frame-Options = %q", path, got)
 		}
