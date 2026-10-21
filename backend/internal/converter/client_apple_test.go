@@ -108,9 +108,24 @@ func TestParseShareURIIPv6(t *testing.T) {
 func TestRenderLoonHysteria2Salamander(t *testing.T) {
 	n, _ := parseShareURI("hy2://pw@85.149.212.214:13290?sni=cdn.example.com&insecure=1&obfs=salamander&obfs-password=obfspw123&alpn=h3&down=200+Mbps#loon-node")
 	got := renderLoonNode(n)
-	want := `loon-node = Hysteria2,85.149.212.214,13290,pw,sni=cdn.example.com,skip-cert-verify=true,alpn=h3,salamander-password=obfspw123,download-bandwidth=200,udp=true,block-quic=false`
+	// Real-world Loon: server-ports must be present even without port hopping,
+	// so a single-port node renders server-ports="<main port>".
+	want := `loon-node = Hysteria2,85.149.212.214,13290,pw,sni=cdn.example.com,skip-cert-verify=true,alpn=h3,salamander-password=obfspw123,server-ports="13290",download-bandwidth=200,udp=true,block-quic=false`
 	if got != want {
 		t.Fatalf("loon line:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestRenderLoonHysteria2ServerPortsSinglePort(t *testing.T) {
+	// No mport: server-ports falls back to the main port — Loon's Hysteria 2
+	// plugin does not dial a node without the field.
+	n, _ := parseShareURI("hy2://pw@85.149.212.214:13290#node")
+	got := renderLoonNode(n)
+	if !strings.Contains(got, `server-ports="13290"`) {
+		t.Fatalf("loon server-ports must always be rendered, got %q", got)
+	}
+	if !strings.HasPrefix(got, `node = Hysteria2,85.149.212.214,13290,pw,`) {
+		t.Fatalf("loon line prefix wrong: %q", got)
 	}
 }
 

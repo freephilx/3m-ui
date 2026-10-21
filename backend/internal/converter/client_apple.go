@@ -396,9 +396,18 @@ func renderLoonNode(n *shareNode) string {
 		} else if obfs == "gecko" {
 			return ""
 		}
-		if hop := shareParam(n.Params, "mport"); hop != "" {
-			parts = append(parts, "server-ports="+quoteValue(hopFormatLoon(hop)))
+		// Loon documents server-ports as comma-separated entries with colon
+		// ranges ("20000:20100"). Real-world testing shows Loon's Hysteria 2
+		// plugin only dials when server-ports is present — a single-port node
+		// must carry server-ports="<main port>" as well, so always render it
+		// (mport range when the share URI has one, the main port otherwise).
+		ports := hopFormatLoon(shareParam(n.Params, "mport"))
+		if ports == "" {
+			ports = n.Port
 		}
+		// Always quote the value: Loon's docs show server-ports="20000:20100"
+		// and real single-port nodes need server-ports="13290".
+		parts = append(parts, `server-ports="`+strings.ReplaceAll(ports, `"`, "")+`"`)
 		if bw := mbpsValue(shareParam(n.Params, "down", "up")); bw != "" {
 			parts = append(parts, "download-bandwidth="+bw)
 		}
