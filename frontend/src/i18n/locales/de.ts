@@ -734,6 +734,7 @@ export default {
     "qrHint": "QR = Standard (Mihomo). V2Ray-URL in klassische Clients einfügen.",
     "bindRemoteHint": "Remote cluster nodes (sync mirrors on the Cluster page first)",
     "selectRemoteNodes": "Remote-Knoten wählen",
+    "remoteOff": "Remote deaktiviert",
     "disabled": "Deaktiviert",
     "batchExtend": "Tage verlängern",
     "batchAddTraffic": "Verkehr hinzufügen",

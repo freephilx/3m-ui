@@ -3,7 +3,11 @@ import { fetchListeners, type Listener, normalizeId } from '../api/nodes';
 import React, { useEffect, useState } from 'react';
 import { Card, Table, Button, Space, Modal, Form, Input, Switch, message, Popconfirm, Tag, Typography, Select } from 'antd';
 import {
+  IconAddNode,
   IconAddRemote,
+  IconCheck,
+  IconCloudUp,
+  IconDelete,
   IconDeleteAlt,
   IconEditAlt,
   IconHealth,
@@ -13,7 +17,10 @@ import {
   IconNavUsers,
   IconDisk,
   IconLogin,
+  IconPlay,
   IconRefreshList,
+  IconRestart,
+  IconStop,
 } from '../icons';
 import {
   fetchCluster,
@@ -434,7 +441,7 @@ const ClusterPage: React.FC = () => {
         extra={
           <Space wrap>
             <Button
-              icon={<IconHealth />}
+              icon={<IconCheck />}
               onClick={async () => {
                 try {
                   setData(await healthAllCluster());
@@ -561,7 +568,7 @@ const ClusterPage: React.FC = () => {
             <Input placeholder="port" style={{ width: 90 }} />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" htmlType="submit" icon={<IconAddRemote />}>
+            <Button type="primary" htmlType="submit" icon={<IconAddNode />}>
               {t('common.create') || 'Create'}
             </Button>
           </Form.Item>
@@ -580,7 +587,7 @@ const ClusterPage: React.FC = () => {
               width: 100,
               render: (_: any, r: any) => (
                 <Popconfirm title={t('common.confirmDelete')} onConfirm={() => deleteRemoteNode(r.id ?? r.ID)}>
-                  <Button size="small" danger>
+                  <Button size="small" danger icon={<IconDelete />}>
                     {t('common.delete')}
                   </Button>
                 </Popconfirm>
@@ -600,6 +607,7 @@ const ClusterPage: React.FC = () => {
           ctrlId ? (
             <Space>
               <Button
+                icon={<IconPlay />}
                 onClick={async () => {
                   try {
                     await remoteStartCore(ctrlId!);
@@ -613,6 +621,7 @@ const ClusterPage: React.FC = () => {
               </Button>
               <Button
                 danger
+                icon={<IconStop />}
                 onClick={async () => {
                   try {
                     await remoteStopCore(ctrlId!);
@@ -626,6 +635,7 @@ const ClusterPage: React.FC = () => {
               </Button>
               <Button
                 type="primary"
+                icon={<IconRestart />}
                 onClick={async () => {
                   try {
                     await remoteRestartCore(ctrlId!);
@@ -690,6 +700,7 @@ const ClusterPage: React.FC = () => {
         onCancel={() => setPushOpen(false)}
         onOk={submitPush}
         okText={t('cluster.pushNodeSubmit') || 'Push'}
+        okButtonProps={{ icon: <IconCloudUp /> }}
         confirmLoading={pushBusy}
         width={isMobile ? '100%' : 520}
         style={isMobile ? { top: 8, maxWidth: '100vw', margin: 0, paddingBottom: 0 } : undefined}
