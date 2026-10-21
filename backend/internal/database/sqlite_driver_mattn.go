@@ -2,4 +2,4 @@
 
 package database
 
-const sqliteDriverName = "sqlite3"
+const SQLiteDriverName = "sqlite3"

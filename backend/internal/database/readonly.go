@@ -17,7 +17,7 @@ func OpenReadOnly(path string) (*gorm.DB, error) {
 		return nil, err
 	}
 	uri := url.URL{Scheme: "file", Path: abs, RawQuery: "mode=ro"}
-	return gorm.Open(sqlite.New(sqlite.Config{DriverName: sqliteDriverName, DSN: uri.String()}), &gorm.Config{
+	return gorm.Open(sqlite.New(sqlite.Config{DriverName: SQLiteDriverName, DSN: uri.String()}), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 }

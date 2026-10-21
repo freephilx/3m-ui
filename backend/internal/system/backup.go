@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/kazeyukiro/3m-ui/backend/internal/database"
 )
 
 // BackupPaths holds filesystem locations needed to export a panel snapshot.
@@ -43,7 +43,10 @@ func snapshotSQLiteDB(dbPath, destPath string) error {
 	if err := os.Remove(destPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("prepare snapshot destination: %w", err)
 	}
-	db, err := sql.Open("sqlite", dbPath)
+	// Go through the same driver name gorm uses, so the snapshot path and the
+	// ORM connection share one registered driver in both build variants
+	// (sqlite_modernc -> modernc "sqlite", default -> mattn "sqlite3").
+	db, err := sql.Open(database.SQLiteDriverName, dbPath)
 	if err != nil {
 		return fmt.Errorf("open live database: %w", err)
 	}

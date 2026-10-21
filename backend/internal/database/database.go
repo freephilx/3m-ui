@@ -33,7 +33,7 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 			dsn += "?_busy_timeout=8000"
 		}
 	}
-	db, err := gorm.Open(sqlite.New(sqlite.Config{DriverName: sqliteDriverName, DSN: dsn}), &gorm.Config{
+	db, err := gorm.Open(sqlite.New(sqlite.Config{DriverName: SQLiteDriverName, DSN: dsn}), &gorm.Config{
 		// Info logs every ErrRecordNotFound (e.g. optional panel_settings keys).
 		// Warn keeps real SQL failures without flooding journald every tick.
 		Logger: logger.Default.LogMode(logger.Warn),
