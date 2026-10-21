@@ -279,3 +279,47 @@ func TestCoreUpdateRoutesRequireAuthentication(t *testing.T) {
 		}
 	}
 }
+
+// The authoritative CSP (matching the index.html meta tag) must be sent on
+// every response, SPA and API alike — the header is what actually constrains
+// documents; JSON responses only carry it harmlessly.
+func TestSecurityHeadersCSP(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.Mode = "debug"
+	cfg.Database.Path = "/tmp/3m-ui-router-test-csp/db.sqlite"
+	cfg.JWT.Secret = "test-secret"
+
+	r := router.SetupRouter(cfg)
+
+	for _, path := range []string{"/api/v1/health", "/login"} {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		r.ServeHTTP(w, req)
+		csp := w.Header().Get("Content-Security-Policy")
+		if csp == "" {
+			t.Fatalf("%s: missing Content-Security-Policy", path)
+		}
+		for _, want := range []string{
+			"default-src 'self'",
+			"script-src 'self';",
+			"style-src 'self' 'unsafe-inline'",
+			"connect-src 'self'",
+			"frame-ancestors 'none'",
+			"object-src 'none'",
+		} {
+			if !strings.Contains(csp, want) {
+				t.Fatalf("%s: CSP %q missing %q", path, csp, want)
+			}
+		}
+		// script-src must never widen to inline execution.
+		if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+			t.Fatalf("%s: script-src must not allow inline: %q", path, csp)
+		}
+		if got := w.Header().Get("X-Frame-Options"); got != "DENY" {
+			t.Fatalf("%s: X-Frame-Options = %q", path, got)
+		}
+		if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Fatalf("%s: X-Content-Type-Options = %q", path, got)
+		}
+	}
+}
