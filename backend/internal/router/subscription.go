@@ -143,6 +143,30 @@ func subscriptionHandler(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 				c.Data(http.StatusOK, "application/json; charset=utf-8", raw)
 				return
 			}
+			// Native Loon / Surge / Quantumult X exports. These clients speak
+			// their own node-line grammar; render them here instead of relying
+			// on an external subconverter service (which may be absent).
+			switch target {
+			case "loon":
+				raw, err = converter.GenerateUserLoonSubscription(db, pu, c.Request, node.ClientURIsWithCredentials)
+			case "surge":
+				raw, err = converter.GenerateUserSurgeSubscription(db, pu, c.Request, node.ClientURIsWithCredentials)
+			case "quanx", "quantumult", "qx":
+				raw, err = converter.GenerateUserQuanXSubscription(db, pu, c.Request, node.ClientURIsWithCredentials)
+			}
+			if err != nil {
+				log.Printf("subscription error: %v", err)
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+				return
+			}
+			switch target {
+			case "loon", "surge", "quanx", "quantumult", "qx":
+				writeSubHeaders(c, db, &pu)
+				c.Header("Cache-Control", "no-store")
+				c.Header("Content-Disposition", `attachment; filename="`+sanitizeFilename(pu.Username)+`.conf"`)
+				c.Data(http.StatusOK, "text/plain; charset=utf-8", raw)
+				return
+			}
 			raw, err = converter.GenerateUserRawConfig(db, pu, c.Request)
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load subscription"})
