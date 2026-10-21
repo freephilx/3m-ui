@@ -53,20 +53,40 @@ func CORSMiddleware(origins []string) gin.HandlerFunc {
 }
 
 // SecurityHeaders sets defensive browser-side HTTP headers on every
-// response. CSP is intentionally NOT set here: API responses are JSON and a
-// global CSP would risk breaking them, while the SPA shell already carries a
-// tight Content-Security-Policy via a <meta> tag in index.html. The headers
-// below harden both API and SPA responses against common MIME-sniffing,
-// framing, and reflected-XSS pitfalls.
+// response. The CSP below is the authoritative policy; index.html also
+// carries the same policy as a <meta> tag, which is defense-in-depth for
+// the window before the backend header arrives and is the only layer in
+// front if the panel is ever served by a proxy that strips headers.
+//
+// The policy is applied globally rather than only on the SPA HTML: CSP
+// only constrains document responses, so JSON API and subscription
+// responses carry it harmlessly. Keeping it global also covers direct
+// hits on /assets/*.html and any future HTML route.
 func SecurityHeaders() gin.HandlerFunc {
+	// Keep in sync with the <meta http-equiv="Content-Security-Policy">
+	// tag in frontend/index.html. script-src has no 'unsafe-inline' —
+	// the SPA is built by Vite into external files only — while
+	// style-src keeps it because React inline style={{...}} (350+ uses)
+	// needs it. img-src allows https: for remote icons (flags, providers).
+	const csp = "default-src 'self'; " +
+		"script-src 'self'; " +
+		"worker-src 'self' blob:; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: https:; " +
+		"font-src 'self' data:; " +
+		"connect-src 'self'; " +
+		"frame-ancestors 'none'; " +
+		"base-uri 'self'; " +
+		"form-action 'self'; " +
+		"object-src 'none'"
+
 	return func(c *gin.Context) {
 		h := c.Writer.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-XSS-Protection", "1; mode=block")
-		// Don't set CSP on API responses — only on the SPA HTML.
-		// The meta CSP in index.html handles the SPA.
+		h.Set("Content-Security-Policy", csp)
 		c.Next()
 	}
 }
