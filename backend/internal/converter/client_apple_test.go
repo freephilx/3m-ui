@@ -416,11 +416,11 @@ func TestRenderQuanXAnyTLSReality(t *testing.T) {
 
 func TestRenderQuanXVmessMethodWhitelist(t *testing.T) {
 	cases := map[string]string{
-		"aes-128-gcm":         "method=aes-128-gcm",
-		"chacha20-poly1305":   "method=chacha20-poly1305",
-		"":                    "method=none",
-		"auto":                "method=none",
-		"zero":                "method=none",
+		"aes-128-gcm":       "method=aes-128-gcm",
+		"chacha20-poly1305": "method=chacha20-poly1305",
+		"":                  "method=none",
+		"auto":              "method=none",
+		"zero":              "method=none",
 	}
 	for scy, want := range cases {
 		n, _ := parseShareURI("vmess://eyJ2IjoiMiIsInBzIjoidjEiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjUyMzk2ZTA2LTA0MWEtNGNjMi1iZTVjLTg1MjVlYjQ1NzgwOSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0IjoidGNwIiwidHlwZSI6Im5vbmUifQ==#v1")
