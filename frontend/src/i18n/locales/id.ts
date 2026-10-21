@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "Belum ada node terikat. Ikat dulu di Pengguna.",
     "uri": "URI",
     "loadUri": "Muat URI",
+    "subHint": "Tempel tautan ke klien. Tanpa ?target=, format mengikuti User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → format aslinya). Header memuat info traffic/kedaluwarsa (Subscription-Userinfo).",
     "subHtml": "Halaman info (HTML)",
     "exportAll": "Ekspor semua tautan langganan",
     "exported": "Tautan langganan diekspor"

@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "Brak powiązanych węzłów. Najpierw powiąż w Użytkownikach.",
     "uri": "URI",
     "loadUri": "Wczytaj URI",
+    "subHint": "Wklej link w kliencie. Bez ?target= format zależy od User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → ich natywne formaty). Nagłówki zawierają ruch/wygasanie (Subscription-Userinfo).",
     "subHtml": "Strona informacyjna (HTML)",
     "exportAll": "Eksportuj wszystkie linki subskrypcji",
     "exported": "Wyeksportowano linki subskrypcji"

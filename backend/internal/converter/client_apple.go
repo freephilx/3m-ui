@@ -353,17 +353,18 @@ func renderLoonNode(n *shareNode) string {
 		if alpn := shareParam(n.Params, "alpn"); alpn != "" {
 			parts = append(parts, "alpn="+quoteValue(alpn))
 		}
+		// Loon only documents salamander obfuscation for Hysteria 2; gecko is
+		// absent from nsloon.app/docs/Node, so a gecko node degrades to a
+		// comment line instead of a broken salamander password.
 		if obfs := shareParam(n.Params, "obfs"); obfs == "salamander" {
 			if pw := shareParam(n.Params, "obfs-password"); pw != "" {
 				parts = append(parts, "salamander-password="+quoteValue(pw))
 			}
 		} else if obfs == "gecko" {
-			if pw := shareParam(n.Params, "obfs-password"); pw != "" {
-				parts = append(parts, "gecko-password="+quoteValue(pw))
-			}
+			return ""
 		}
 		if hop := shareParam(n.Params, "mport"); hop != "" {
-			parts = append(parts, "server-ports="+quoteValue(hopFormatSemicolon(hop)))
+			parts = append(parts, "server-ports="+quoteValue(hopFormatLoon(hop)))
 		}
 		if bw := mbpsValue(shareParam(n.Params, "down", "up")); bw != "" {
 			parts = append(parts, "download-bandwidth="+bw)
@@ -416,6 +417,17 @@ func renderLoonNode(n *shareNode) string {
 		b.WriteString(loonTLSTail(parts, n.Params, ""))
 	case "anytls":
 		parts := []string{tag, "AnyTLS", n.Host, n.Port, quoteValue(n.Password)}
+		// Loon documents public-key/short-id for AnyTLS + REALITY
+		// (nsloon.app/docs/Node, AnyTLS section); no over-tls argument exists
+		// because AnyTLS always carries TLS itself.
+		if n.Params["security"] == "reality" {
+			if pbk := shareParam(n.Params, "pbk"); pbk != "" {
+				parts = append(parts, "public-key="+quoteValue(pbk))
+			}
+			if sid := shareParam(n.Params, "sid"); sid != "" {
+				parts = append(parts, "short-id="+sid)
+			}
+		}
 		if sni := shareParam(n.Params, "sni"); sni != "" {
 			parts = append(parts, "sni="+sni)
 		}
@@ -508,6 +520,27 @@ func hopFormatSemicolon(v string) string {
 		return strings.ReplaceAll(v, ",", ";")
 	}
 	return v
+}
+
+// hopFormatLoon renders a share-URI port-hop spec (comma-separated entries,
+// dash ranges like "5000-6000") the way Loon's server-ports documents it:
+// comma-separated entries with colon ranges ("5000:6000"), the value quoted
+// by the caller when it contains commas (Loon separates node args by comma).
+func hopFormatLoon(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	segs := strings.Split(v, ",")
+	for i, s := range segs {
+		s = strings.TrimSpace(s)
+		if lo, hi, ok := strings.Cut(s, "-"); ok && lo != "" && hi != "" {
+			segs[i] = lo + ":" + hi
+		} else {
+			segs[i] = s
+		}
+	}
+	return strings.Join(segs, ",")
 }
 
 // ---- Surge ----
@@ -885,6 +918,10 @@ func GenerateUserLoonSubscription(db *gorm.DB, pu models.ProxyUser, req *http.Re
 		skipMsg: func(n *shareNode) (string, bool) {
 			if n.Protocol == "tuic" {
 				return "Loon 暂不支持 TUIC 协议", true
+			}
+			if n.Protocol == "hysteria2" && shareParam(n.Params, "obfs") == "gecko" {
+				// Loon's Hysteria 2 section documents salamander-password only.
+				return "Loon 暂不支持 Hysteria2 Gecko 混淆", true
 			}
 			return "", false
 		},

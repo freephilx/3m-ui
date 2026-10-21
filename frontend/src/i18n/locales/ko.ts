@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "노드가 바인딩되지 않았습니다. 사용자 관리에서 먼저 바인딩하세요.",
     "uri": "URI",
     "loadUri": "URI 불러오기",
+    "subHint": "링크를 클라이언트에 붙여넣으세요. ?target= 없이는 User-Agent에 따라 형식이 결정됩니다 (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → 각각의 기본 형식). 헤더에 트래픽/만료 정보가 포함됩니다 (Subscription-Userinfo).",
     "subHtml": "정보 페이지 (HTML)",
     "exportAll": "모든 구독 링크 내보내기",
     "exported": "구독 링크를 내보냈습니다"

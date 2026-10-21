@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "कोई नोड बाउंड नहीं। पहले उपयोगकर्ता में बाउंड करें।",
     "uri": "URI",
     "loadUri": "URI लोड करें",
+    "subHint": "लिंक को क्लाइंट में पेस्ट करें। ?target= के बिना, फ़ॉर्मैट User-Agent का अनुसरण करता है (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → उनके मूल फ़ॉर्मैट)। हेडर में ट्रैफ़िक/समाप्ति जानकारी होती है (Subscription-Userinfo)।",
     "subHtml": "जानकारी पेज (HTML)",
     "exportAll": "सभी सब्सक्रिप्शन लिंक निर्यात",
     "exported": "सब्सक्रिप्शन लिंक निर्यात"

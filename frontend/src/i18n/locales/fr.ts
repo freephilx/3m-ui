@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "Aucun nœud lié. Liez d’abord sous Utilisateurs.",
     "uri": "URI",
     "loadUri": "Charger l’URI",
+    "subHint": "Collez le lien dans le client. Sans ?target=, le format suit le User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → leurs formats natifs). Les en-têtes incluent trafic/expiration (Subscription-Userinfo).",
     "subHtml": "Page d’info (HTML)",
     "exportAll": "Exporter tous les liens d’abonnement",
     "exported": "Liens d’abonnement exportés"

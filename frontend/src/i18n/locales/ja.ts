@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "ノード未バインド。先にユーザー管理でバインドしてください。",
     "uri": "URI",
     "loadUri": "URI を読み込み",
+    "subHint": "リンクをクライアントに貼り付けます。?target= を付けない場合、形式は User-Agent に従います（Clash/Mihomo → YAML、v2rayNG → Base64、sing-box → JSON、Loon/Surge/Quantumult X → 各ネイティブ形式）。ヘッダーに通信量/有効期限が含まれます（Subscription-Userinfo）。",
     "subHtml": "情報ページ (HTML)",
     "exportAll": "すべての購読リンクをエクスポート",
     "exported": "購読リンクをエクスポートしました"

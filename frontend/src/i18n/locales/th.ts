@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "ยังไม่ผูกโหนด ผูกในผู้ใช้ก่อน",
     "uri": "URI",
     "loadUri": "โหลด URI",
+    "subHint": "วางลิงก์ในไคลเอนต์ โดยไม่มี ?target= รูปแบบจะตาม User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → รูปแบบดั้งเดิมของแต่ละตัว) ส่วนหัวมีข้อมูลการใช้งาน/วันหมดอายุ (Subscription-Userinfo)",
     "subHtml": "หน้าข้อมูล (HTML)",
     "exportAll": "ส่งออกลิงก์สมัครทั้งหมด",
     "exported": "ส่งออกลิงก์สมัครแล้ว"

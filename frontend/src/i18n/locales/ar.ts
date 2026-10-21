@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "لا عقد مربوطة. اربط أولاً في المستخدمين.",
     "uri": "URI",
     "loadUri": "تحميل URI",
+    "subHint": "الصق الرابط في العميل. بدون ?target=، يتبع التنسيق معرف User-Agent (Clash/Mihomo → YAML، v2rayNG → Base64، sing-box → JSON، Loon/Surge/Quantumult X → تنسيقاتها الأصلية). تتضمن الترويسات معلومات حركة المرور/الانتهاء (Subscription-Userinfo).",
     "subHtml": "صفحة المعلومات (HTML)",
     "exportAll": "تصدير كل روابط الاشتراك",
     "exported": "تم تصدير روابط الاشتراك"

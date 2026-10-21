@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "Keine Knoten gebunden. Zuerst unter Benutzer binden.",
     "uri": "URI",
     "loadUri": "URI laden",
+    "subHint": "In den Client einfügen. Ohne ?target= folgt das Format dem User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → jeweiliges natives Format). Kopfzeilen enthalten Traffic/Ablaufdatum (Subscription-Userinfo).",
     "subHtml": "Infoseite (HTML)",
     "exportAll": "Alle Abo-Links exportieren",
     "exported": "Abo-Links exportiert"

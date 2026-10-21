@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "Chưa gán nút. Hãy gán trong Người dùng trước.",
     "uri": "URI",
     "loadUri": "Tải URI",
+    "subHint": "Dán liên kết vào client. Không có ?target=, định dạng theo User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → định dạng gốc của chúng). Header chứa thông tin lưu lượng/hết hạn (Subscription-Userinfo).",
     "subHtml": "Trang thông tin (HTML)",
     "exportAll": "Xuất tất cả liên kết đăng ký",
     "exported": "Đã xuất liên kết đăng ký"

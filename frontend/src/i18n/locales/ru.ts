@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "Нет привязанных узлов. Сначала привяжите в Пользователях.",
     "uri": "URI",
     "loadUri": "Загрузить URI",
+    "subHint": "Вставьте ссылку в клиент. Без ?target= формат определяется по User-Agent (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → их родные форматы). Заголовки содержат трафик/срок действия (Subscription-Userinfo).",
     "subHtml": "Инфо-страница (HTML)",
     "exportAll": "Экспортировать все ссылки подписки",
     "exported": "Ссылки подписки экспортированы"

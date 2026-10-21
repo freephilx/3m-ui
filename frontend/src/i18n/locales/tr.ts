@@ -1151,6 +1151,7 @@ export default {
     "noNodes": "Bağlı düğüm yok. Önce Kullanıcılar’da bağlayın.",
     "uri": "URI",
     "loadUri": "URI yükle",
+    "subHint": "Bağlantıyı istemciye yapıştırın. ?target= olmadan biçim User-Agent’ı izler (Clash/Mihomo → YAML, v2rayNG → Base64, sing-box → JSON, Loon/Surge/Quantumult X → kendi yerel biçimleri). Başlıklar trafik/sona erme bilgisini içerir (Subscription-Userinfo).",
     "subHtml": "Bilgi sayfası (HTML)",
     "exportAll": "Tüm abonelik bağlantılarını dışa aktar",
     "exported": "Abonelik bağlantıları dışa aktarıldı"

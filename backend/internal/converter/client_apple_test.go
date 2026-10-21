@@ -113,6 +113,42 @@ func TestRenderLoonHysteria2Salamander(t *testing.T) {
 	}
 }
 
+func TestRenderLoonHysteria2ServerPorts(t *testing.T) {
+	// Loon documents server-ports as comma-separated entries with colon
+	// ranges: server-ports="20000:20100". Dash ranges from the share URI
+	// must be converted, not passed through (Surge syntax).
+	n, _ := parseShareURI("hy2://pw@hy2.example.com:443,5000-6000?mport=443,5000-6000#hop")
+	got := renderLoonNode(n)
+	if !strings.Contains(got, `server-ports="443,5000:6000"`) {
+		t.Fatalf("loon server-ports wrong format: %s", got)
+	}
+	if strings.Contains(got, "5000-6000") || strings.Contains(got, ";") {
+		t.Fatalf("loon server-ports must not use dash/semicolon: %s", got)
+	}
+}
+
+func TestRenderLoonHysteria2GeckoSkipped(t *testing.T) {
+	// Loon has no gecko-password in its Hysteria 2 section: the renderer
+	// emits nothing and the generator degrades it to a comment.
+	n, _ := parseShareURI("hy2://pw@hy2.example.com:443?obfs=gecko&obfs-password=gpw#g")
+	if got := renderLoonNode(n); got != "" {
+		t.Fatalf("loon should not render gecko hy2, got %q", got)
+	}
+}
+
+func TestRenderLoonAnyTLSReality(t *testing.T) {
+	n, _ := parseShareURI("anytls://pw@at.example.com:443?security=reality&pbk=dR2euO5X-8ENLeBjO9ZfXQ2RDlg_uBEHBHBNBQTapyU&sid=a0997793b8119118&sni=www.microsoft.com#at-r")
+	got := renderLoonNode(n)
+	for _, frag := range []string{"AnyTLS,at.example.com,443", "public-key=dR2euO5X-8ENLeBjO9ZfXQ2RDlg_uBEHBHBNBQTapyU", "short-id=a0997793b8119118", "sni=www.microsoft.com"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("loon anytls reality missing %q: %s", frag, got)
+		}
+	}
+	if strings.Contains(got, "over-tls") {
+		t.Fatalf("loon anytls must not carry over-tls: %s", got)
+	}
+}
+
 func TestRenderLoonSSPlugin(t *testing.T) {
 	n, _ := parseShareURI("ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@ss.example.com:8388/?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dbing.com#ss-node")
 	got := renderLoonNode(n)
