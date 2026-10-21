@@ -49,6 +49,7 @@ export interface RemoteNodeMirror {
   last_sync_at?: string;
   last_error?: string;
   remote_server_name?: string;
+  remote_server_enabled?: boolean;
 }
 
 export const syncRemoteNodes = (id: number) =>

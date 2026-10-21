@@ -10,6 +10,9 @@ import (
 )
 
 // loadBoundRemoteMirrors returns enabled remote node mirrors bound to the user.
+// A mirror only contributes when its remote server still exists and is enabled:
+// deleting or disabling a remote must retract its nodes from every subscription,
+// otherwise a disabled remote keeps serving proxies the operator turned off.
 func loadBoundRemoteMirrors(db *gorm.DB, userID uint) ([]models.RemoteNodeMirror, error) {
 	var binds []models.ProxyUserRemoteNode
 	if err := db.Where("proxy_user_id = ?", userID).Find(&binds).Error; err != nil {
@@ -23,7 +26,11 @@ func loadBoundRemoteMirrors(db *gorm.DB, userID uint) ([]models.RemoteNodeMirror
 		ids = append(ids, b.RemoteNodeMirrorID)
 	}
 	var mirrors []models.RemoteNodeMirror
-	if err := db.Where("id IN ? AND enabled = ?", ids, true).Find(&mirrors).Error; err != nil {
+	if err := db.
+		Joins("JOIN remote_servers ON remote_servers.id = remote_node_mirrors.remote_server_id").
+		Where("remote_node_mirrors.id IN ? AND remote_node_mirrors.enabled = ? AND remote_servers.enabled = ?",
+			ids, true, true).
+		Find(&mirrors).Error; err != nil {
 		return nil, err
 	}
 	return mirrors, nil

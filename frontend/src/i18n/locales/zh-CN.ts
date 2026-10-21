@@ -735,6 +735,7 @@ export default {
     "qrHint": "二维码默认对应 Mihomo；经典客户端请粘贴 V2Ray 链接",
     "bindRemoteHint": "远程集群节点（需先在多机节点中同步镜像）",
     "selectRemoteNodes": "选择远程节点",
+    "remoteOff": "远端已禁用",
     "disabled": "已禁用",
     "batchExtend": "批量延期",
     "batchAddTraffic": "批量加流量",

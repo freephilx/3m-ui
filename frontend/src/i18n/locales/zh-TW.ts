@@ -734,6 +734,7 @@ export default {
     "qrHint": "QR 碼預設对应 Mihomo；经典用戶端請粘贴 V2Ray 連結",
     "bindRemoteHint": "遠端集群節點（需先在多机節點中同步镜像）",
     "selectRemoteNodes": "選擇遠端節點",
+    "remoteOff": "遠端已停用",
     "disabled": "已停用",
     "batchExtend": "批量延期",
     "batchAddTraffic": "批量加流量",

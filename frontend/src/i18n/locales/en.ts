@@ -734,6 +734,7 @@ export default {
     "subQuanx": "Quantumult X subscription",
     "qrHint": "QR = default (Mihomo). Paste the V2Ray URL into classic clients.",
     "bindRemoteHint": "Remote cluster nodes (sync mirrors on the Cluster page first)",
+    "remoteOff": "remote off",
     "selectRemoteNodes": "Select remote nodes",
     "disabled": "Disabled",
     "batchExtend": "Extend days",

@@ -865,10 +865,19 @@ const Users: React.FC = () => {
           optionFilterProp="label"
           value={selectedRemoteIds}
           onChange={(ids: number[]) => setSelectedRemoteIds(ids)}
-          options={(remoteMirrors || []).filter((m) => m.enabled).map((m) => ({
-            value: m.id,
-            label: `${m.remote_server_name || m.remote_server_id} / ${m.name} (${m.protocol || '?'})`,
-          }))}
+          options={(remoteMirrors || [])
+            .filter((m) => m.enabled)
+            .map((m) => ({
+              value: m.id,
+              // A mirror whose parent remote is disabled keeps its binding
+              // but stops feeding subscriptions — surface that instead of
+              // silently offering a node that will never appear.
+              label:
+                m.remote_server_enabled === false
+                  ? `${m.remote_server_name || m.remote_server_id} / ${m.name} (${m.protocol || '?'}) — ${t('users.remoteOff') || 'remote off'}`
+                  : `${m.remote_server_name || m.remote_server_id} / ${m.name} (${m.protocol || '?'})`,
+              disabled: m.remote_server_enabled === false,
+            }))}
         />
       </Modal>
       <Modal

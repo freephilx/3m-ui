@@ -139,8 +139,30 @@ func (s *Service) Update(id uint, in UpdateInput) (*models.RemoteServer, error) 
 	return sanitize(&row), nil
 }
 
+// Delete removes a remote server together with its node mirrors and every
+// user binding that pointed at them. Without the cascade the mirrors survive
+// and keep feeding subscriptions, so a deleted remote would keep serving
+// proxies that nobody manages any more.
 func (s *Service) Delete(id uint) error {
-	return s.db.Delete(&models.RemoteServer{}, id).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var mirrors []models.RemoteNodeMirror
+		if err := tx.Select("id").Where("remote_server_id = ?", id).Find(&mirrors).Error; err != nil {
+			return err
+		}
+		if len(mirrors) > 0 {
+			ids := make([]uint, 0, len(mirrors))
+			for _, m := range mirrors {
+				ids = append(ids, m.ID)
+			}
+			if err := tx.Where("remote_node_mirror_id IN ?", ids).Delete(&models.ProxyUserRemoteNode{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("remote_server_id = ?", id).Delete(&models.RemoteNodeMirror{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.RemoteServer{}, id).Error
+	})
 }
 
 func (s *Service) HealthCheck(id uint) (*models.RemoteServer, error) {

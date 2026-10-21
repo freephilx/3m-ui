@@ -184,8 +184,13 @@ func GenerateUserBase64Subscription(db *gorm.DB, pu models.ProxyUser, req *http.
 		return nil, fmt.Errorf("user is not active")
 	}
 	listeners, filtered, err := userBoundListeners(db, pu)
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "not bound") && !strings.Contains(err.Error(), "no exportable") {
 		return nil, err
+	}
+	if err != nil {
+		// A user may hold only remote cluster mirrors (no local listener).
+		// The mirror merge below supplies the links; bail out later if empty.
+		listeners, filtered = nil, map[uint][]user.Credential{}
 	}
 	serverHost := ResolveServerAddress(config.GlobalConfig, req)
 

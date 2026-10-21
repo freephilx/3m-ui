@@ -102,6 +102,18 @@ func (s *Service) SyncRemoteNodes(remoteID uint) ([]models.RemoteNodeMirror, err
 		var existing models.RemoteNodeMirror
 		qerr := s.db.Where("remote_server_id = ? AND remote_node_id = ?", remoteID, n.ID).First(&existing).Error
 		if qerr == nil {
+			// Keep the last good export when this sync's URI fetch failed: a
+			// transient remote error must not wipe the cached link and silently
+			// drop the node from every subscription that bound it.
+			if strings.TrimSpace(mirror.ShareURI) == "" && strings.TrimSpace(existing.ShareURI) != "" {
+				mirror.ShareURI = existing.ShareURI
+			}
+			if strings.TrimSpace(mirror.ShareURIsJSON) == "" && strings.TrimSpace(existing.ShareURIsJSON) != "" {
+				mirror.ShareURIsJSON = existing.ShareURIsJSON
+			}
+			if strings.TrimSpace(mirror.ClientYAML) == "" && strings.TrimSpace(existing.ClientYAML) != "" {
+				mirror.ClientYAML = existing.ClientYAML
+			}
 			existing.Name = mirror.Name
 			existing.Protocol = mirror.Protocol
 			existing.Port = mirror.Port
@@ -176,11 +188,14 @@ func (s *Service) ListMirroredNodes(remoteServerID uint) ([]models.RemoteNodeMir
 	var servers []models.RemoteServer
 	_ = s.db.Find(&servers).Error
 	nameByID := map[uint]string{}
+	enabledByID := map[uint]bool{}
 	for _, srv := range servers {
 		nameByID[srv.ID] = srv.Name
+		enabledByID[srv.ID] = srv.Enabled
 	}
 	for i := range rows {
 		rows[i].RemoteServerName = nameByID[rows[i].RemoteServerID]
+		rows[i].RemoteServerEnabled = enabledByID[rows[i].RemoteServerID]
 	}
 	return rows, nil
 }

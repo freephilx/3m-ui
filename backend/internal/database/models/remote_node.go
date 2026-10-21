@@ -25,6 +25,10 @@ type RemoteNodeMirror struct {
 
 	// Joined for API responses (not persisted).
 	RemoteServerName string `gorm:"-" json:"remote_server_name,omitempty"`
+	// RemoteServerEnabled mirrors the parent remote's enabled flag: a mirror
+	// whose remote is disabled stops feeding subscriptions, so the binding UI
+	// must be able to tell the two states apart.
+	RemoteServerEnabled bool `gorm:"-" json:"remote_server_enabled"`
 }
 
 // ProxyUserRemoteNode binds a local proxy user to a mirrored remote node.
