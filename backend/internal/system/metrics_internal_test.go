@@ -3,6 +3,8 @@ package system
 import (
 	"testing"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 func TestParseCPUSetCount(t *testing.T) {
@@ -192,5 +194,65 @@ func TestSampleDiskReportsFiniteUsage(t *testing.T) {
 	}
 	if d.Used > d.Total {
 		t.Fatalf("disk used %d exceeds total %d", int64(d.Used), int64(d.Total))
+	}
+}
+
+// The memory card reads /proc/meminfo through mem.VirtualMemory and reports
+// Used/Total as-is (s-ui's GetMemInfo does the same). These cases pin the
+// conversion: gopsutil's UsedPercent is trusted, a nonsensical one is
+// recomputed from Used/Total, and an empty stat yields the zero value.
+func TestMemoryFromHost(t *testing.T) {
+	cases := []struct {
+		name      string
+		used      uint64
+		total     uint64
+		percentIn float64
+		wantPct   float64
+	}{
+		{"gopsutil percent is used as-is", 33 << 20, 128 << 20, 25.8, 25.8},
+		{"zero percent is recomputed", 64 << 20, 128 << 20, 0, 50},
+		{"percent above 100 is recomputed", 64 << 20, 128 << 20, 180, 50},
+		{"negative percent is recomputed", 8 << 20, 128 << 20, -5, 6.3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := memoryFromHost(&mem.VirtualMemoryStat{
+				Used:        tc.used,
+				Total:       tc.total,
+				UsedPercent: tc.percentIn,
+			})
+			if info.Used != float64(tc.used) || info.Total != float64(tc.total) {
+				t.Fatalf("used=%f total=%f, want %d/%d", info.Used, info.Total, tc.used, tc.total)
+			}
+			if info.Percent != tc.wantPct {
+				t.Fatalf("percent=%f, want %f", info.Percent, tc.wantPct)
+			}
+		})
+	}
+}
+
+func TestMemoryFromHostRejectsEmptyStats(t *testing.T) {
+	if got := memoryFromHost(nil); got != (MemoryInfo{}) {
+		t.Fatalf("nil stat -> %+v, want zero MemoryInfo", got)
+	}
+	if got := memoryFromHost(&mem.VirtualMemoryStat{Used: 1 << 20, Total: 0}); got != (MemoryInfo{}) {
+		t.Fatalf("zero total -> %+v, want zero MemoryInfo", got)
+	}
+}
+
+// sampleMemory must report the host figures whenever /proc/meminfo is
+// readable, even when the process' cgroup carries a real memory limit (a
+// systemd MemoryMax, a container quota): the cap is not the machine.
+func TestSampleMemoryPrefersHostOverCgroupLimit(t *testing.T) {
+	vMem, err := mem.VirtualMemory()
+	if err != nil || vMem == nil || vMem.Total <= 0 {
+		t.Skip("/proc/meminfo unavailable on this host")
+	}
+	info := sampleMemory()
+	if info.Total != float64(vMem.Total) {
+		t.Fatalf("total=%f, want the host total %d", info.Total, vMem.Total)
+	}
+	if info.Percent < 0 || info.Percent > 100 {
+		t.Fatalf("percent out of range: %f", info.Percent)
 	}
 }

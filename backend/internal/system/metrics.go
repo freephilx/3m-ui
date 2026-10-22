@@ -1,6 +1,7 @@
 package system
 
 import (
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -303,8 +304,10 @@ func diskInfo(u *disk.UsageStat) DiskInfo {
 	}
 }
 
-// memoryFromCgroup turns raw cgroup counters into the MemoryInfo the card
-// shows. ok is false when nothing usable came back.
+// memoryFromCgroup turns raw cgroup counters into MemoryInfo. It backs the
+// last-resort path sampleMemory falls back to when /proc/meminfo cannot be
+// read, and the per-process split on the process card. ok is false when
+// nothing usable came back.
 //
 // Two things make this more than an division:
 //
@@ -353,42 +356,50 @@ func memoryFromCgroup(cg cgroupMemory, hostTotal float64) (MemoryInfo, bool) {
 	}, true
 }
 
-// sampleMemory returns host memory usage.
+// sampleMemory returns whole-host memory usage.
 //
-// Inside a container or under a systemd MemoryMax, /proc/meminfo (which
-// mem.VirtualMemory reads) describes the *host*, not the cgroup the panel
-// actually lives in. That mismatch is what made the dashboard read a smaller
-// "system memory used" than the sum of the per-process RSS shown right next to
-// it. Preferring cgroup accounting keeps both cards on the same basis, and the
-// per-process percentages divide by this same total.
+// The card reports what /proc/meminfo says about the machine: Used and Total
+// from mem.VirtualMemory(), with buffers and cache already discounted — the
+// same source and the same figures s-ui's GetMemInfo reports. cgroup
+// accounting is deliberately not preferred: the installer's systemd MemoryMax
+// is a self-protection cap, not a description of the machine, and preferring
+// it made a 128MB host look like it only had 72MB.
 //
-// The CPU card uses cgroup accounting for the same reason, so the two resource
-// bars answer the same question: how loaded is the thing we are running in.
+// The trade, stated plainly: under a systemd MemoryMax, or inside a container
+// whose /proc/meminfo is not isolated (Docker, Kubernetes, lxcfs-less LXC), the
+// card describes the machine around the cgroup rather than the cap. That is
+// exactly what s-ui and 3x-ui show, and it is the behaviour being copied here.
+//
+// cgroup accounting survives as a last resort for environments where
+// /proc/meminfo cannot be read at all, and stays the source for the
+// per-process split on the process card. Per-process percentages divide by
+// this same total, so both memory cards stay on one basis.
 func sampleMemory() MemoryInfo {
-	cg := readCgroupMemory()
-
 	vMem, err := mem.VirtualMemory()
-	if err != nil || vMem == nil {
-		// No /proc/meminfo at all — cgroup is the only source available.
-		if info, ok := memoryFromCgroup(cg, 0); ok {
+	if err != nil || vMem == nil || vMem.Total <= 0 {
+		log.Printf("system memory: /proc/meminfo unavailable (%v); falling back to cgroup accounting", err)
+		if info, ok := memoryFromCgroup(readCgroupMemory(), 0); ok {
 			return info
 		}
 		return MemoryInfo{}
 	}
-	hostTotal := float64(vMem.Total)
+	return memoryFromHost(vMem)
+}
 
-	if info, ok := memoryFromCgroup(cg, hostTotal); ok {
-		return info
+// memoryFromHost turns a gopsutil VirtualMemoryStat into the MemoryInfo the
+// card shows. gopsutil's Used already discounts buffers and cache — the same
+// convention as free(1)'s "used" column — and UsedPercent is that same ratio,
+// so it is used as-is rather than recomputed from Used/Total unless it is
+// nonsensical. A stat with no total is not usable and yields the zero value.
+func memoryFromHost(vMem *mem.VirtualMemoryStat) MemoryInfo {
+	if vMem == nil || vMem.Total <= 0 {
+		return MemoryInfo{}
 	}
-
-	// No cgroup accounting (bare metal): report host figures. gopsutil already
-	// discounts buffers and cache here, and UsedPercent is that same ratio, so
-	// it is used as-is rather than recomputed from Used/Total.
 	used := float64(vMem.Used)
-	total := hostTotal
+	total := float64(vMem.Total)
 	percent := vMem.UsedPercent
 	// Only substitute used/total when gopsutil handed back a nonsensical value.
-	if total > 0 && (percent <= 0 || percent > 100) {
+	if percent <= 0 || percent > 100 {
 		percent = used / total * 100
 	}
 	return MemoryInfo{
