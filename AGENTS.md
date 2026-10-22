@@ -22,7 +22,7 @@ Main functions:
 ### Backend
 
 Language:
-- Go 1.25+
+- Go 1.26+ (1.26.10 or newer; earlier 1.25 builds lack the crypto/x509 fix for CVE-2026-111943)
 
 Framework:
 - Gin
