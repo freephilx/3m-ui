@@ -486,3 +486,156 @@ func TestComputeCPUCapacityHonoursContainerQuota(t *testing.T) {
 		t.Fatalf("computeCPUCapacity() = %v, want the container quota 2", got)
 	}
 }
+
+// Trailing systemd units describe the panel's own unit, not the machine it
+// runs on; the container boundary, where one exists, must survive the strip.
+func TestStripServiceSegments(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/system.slice/3m-ui.service", "/"},
+		{"/system.slice/3m-ui.service/", "/"},
+		{"/", "/"},
+		{"/init.scope", "/"},
+		// A docker-<id>.scope is the container itself, not a unit to strip.
+		{"/system.slice/docker-9f1c.scope", "/system.slice/docker-9f1c.scope"},
+		{"/system.slice/docker-9f1c.scope/system.slice/3m-ui.service", "/system.slice/docker-9f1c.scope"},
+		{"/machine.slice/machine-nat.scope/system.slice/3m-ui.service", "/machine.slice/machine-nat.scope"},
+		// Host-hierarchy container paths stop at the runtime segment.
+		{"/lxc/1000/system.slice/3m-ui.service", "/lxc/1000"},
+		{"/lxc/1000", "/lxc/1000"},
+		{"/docker/9f1c", "/docker/9f1c"},
+		{"/kubepods/burstable/pod123/abc/system.slice/3m-ui.service", "/kubepods/burstable/pod123/abc"},
+		{"/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod1.slice/cri-containerd-abc.scope/system.slice/3m-ui.service", "/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod1.slice/cri-containerd-abc.scope"},
+		// User units strip all the way down too.
+		{"/user.slice/user-1000.slice/user@1000.service/3m-ui.service", "/"},
+		// A non-systemd segment stops the strip: /ns is not a unit.
+		{"/lxc/1000/ns/system.slice/3m-ui.service", "/lxc/1000/ns"},
+	}
+	for _, c := range cases {
+		if got := stripServiceSegments(c.in); got != c.want {
+			t.Errorf("stripServiceSegments(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// The regression this whole mechanism exists for: the panel runs under
+// systemd inside a 128MB container, the installer has written its 72MB
+// self-protection cap onto the panel's own unit, and the container root
+// carries the machine. The card must read the container root.
+func TestContainerCgroupDirIgnoresPanelUnitLimit(t *testing.T) {
+	f := newCgroupFixture(t)
+	f.mount("cgroup2", "/") // private cgroup namespace: the mount is the container
+	f.selfV2("/system.slice/3m-ui.service")
+	f.cgroupV2("system.slice/3m-ui.service", 60*mb, 0, 72*mb) // the installer's MemoryMax
+	f.cgroupV2("", 100*mb, 10*mb, 128*mb)                     // the container itself
+
+	if got := containerCgroupDir(); got != f.root {
+		t.Fatalf("containerCgroupDir() = %q, want the container root %q", got, f.root)
+	}
+	m := readContainerRootMemory()
+	if !m.ok || int64(m.limit) != 128*mb || int64(m.usage) != 100*mb {
+		t.Fatalf("readContainerRootMemory() = %+v, want the container's 128MB cap and 100MB usage", m)
+	}
+}
+
+// LXC's default cgroup:mixed mounts only the container's own cgroup at the
+// cgroup root, so the mount point is the container whatever the reported
+// path claims.
+func TestContainerCgroupDirSubtreeMountIsContainerRoot(t *testing.T) {
+	f := newCgroupFixture(t)
+	f.mount("cgroup2", "/lxc/1000")
+	f.selfV2("/lxc/1000/ns/system.slice/3m-ui.service")
+	f.cgroupV2("ns/system.slice/3m-ui.service", 60*mb, 0, 72*mb)
+	f.cgroupV2("", 100*mb, 10*mb, 128*mb)
+
+	if got := containerCgroupDir(); got != f.root {
+		t.Fatalf("containerCgroupDir() = %q, want the subtree mount %q", got, f.root)
+	}
+	if m := readContainerRootMemory(); !m.ok || int64(m.limit) != 128*mb {
+		t.Fatalf("readContainerRootMemory() = %+v, want the container's 128MB cap", m)
+	}
+}
+
+// Docker with the host cgroup namespace: the container begins at its own
+// docker-<id>.scope, below the host's system.slice.
+func TestContainerCgroupDirStopsAtDockerScope(t *testing.T) {
+	f := newCgroupFixture(t)
+	f.mount("cgroup2", "/")
+	f.selfV2("/system.slice/docker-9f1c.scope/system.slice/3m-ui.service")
+	f.cgroupV2("system.slice/docker-9f1c.scope/system.slice/3m-ui.service", 60*mb, 0, 72*mb)
+	f.cgroupV2("system.slice/docker-9f1c.scope", 60*mb, 0, 64*mb)
+
+	want := filepath.Join(f.root, "system.slice/docker-9f1c.scope")
+	if got := containerCgroupDir(); got != want {
+		t.Fatalf("containerCgroupDir() = %q, want %q", got, want)
+	}
+	if m := readContainerRootMemory(); !m.ok || int64(m.limit) != 64*mb {
+		t.Fatalf("readContainerRootMemory() = %+v, want the container's 64MB cap", m)
+	}
+}
+
+// Kubernetes with the host cgroup namespace: the container is the leaf below
+// the pod's slice hierarchy.
+func TestContainerCgroupDirResolvesKubepodsContainer(t *testing.T) {
+	f := newCgroupFixture(t)
+	f.mount("cgroup2", "/")
+	f.selfV2("/kubepods/burstable/pod123/abc/system.slice/3m-ui.service")
+	f.cgroupV2("kubepods/burstable/pod123/abc/system.slice/3m-ui.service", 60*mb, 0, 72*mb)
+	f.cgroupV2("kubepods/burstable/pod123/abc", 60*mb, 0, 256*mb)
+
+	want := filepath.Join(f.root, "kubepods/burstable/pod123/abc")
+	if got := containerCgroupDir(); got != want {
+		t.Fatalf("containerCgroupDir() = %q, want %q", got, want)
+	}
+	if m := readContainerRootMemory(); !m.ok || int64(m.limit) != 256*mb {
+		t.Fatalf("readContainerRootMemory() = %+v, want the container's 256MB cap", m)
+	}
+}
+
+// cgroup v1 resolves the same way through the memory controller's directory.
+func TestContainerCgroupDirV1SubtreeMount(t *testing.T) {
+	f := newCgroupFixture(t)
+	f.mount("cgroup", "/lxc/1000")
+	f.selfV1("/lxc/1000/system.slice/3m-ui.service")
+	f.cgroupV1("system.slice/3m-ui.service", 60*mb, 0, 72*mb)
+	f.cgroupV1("", 100*mb, 10*mb, 128*mb)
+
+	want := filepath.Join(f.root, "memory")
+	if got := containerCgroupDir(); got != want {
+		t.Fatalf("containerCgroupDir() = %q, want %q", got, want)
+	}
+	if m := readContainerRootMemory(); !m.ok || int64(m.limit) != 128*mb {
+		t.Fatalf("readContainerRootMemory() = %+v, want the container's 128MB cap", m)
+	}
+}
+
+func TestContainerCgroupDirV1PlainHierarchy(t *testing.T) {
+	f := newCgroupFixture(t)
+	f.mount("cgroup", "/")
+	f.selfV1("/system.slice/3m-ui.service")
+	f.cgroupV1("system.slice/3m-ui.service", 60*mb, 0, 72*mb)
+	f.cgroupV1("", 100*mb, 10*mb, 128*mb)
+
+	want := filepath.Join(f.root, "memory")
+	if got := containerCgroupDir(); got != want {
+		t.Fatalf("containerCgroupDir() = %q, want %q", got, want)
+	}
+	if m := readContainerRootMemory(); !m.ok || int64(m.limit) != 128*mb {
+		t.Fatalf("readContainerRootMemory() = %+v, want the container's 128MB cap", m)
+	}
+}
+
+// A reported path that resolves to nothing must yield "", not a wrong
+// directory: the caller then keeps host-wide figures rather than inventing a
+// machine.
+func TestContainerCgroupDirUnresolvablePath(t *testing.T) {
+	f := newCgroupFixture(t)
+	f.mount("cgroup2", "/")
+	f.selfV2("/somewhere/else")
+
+	if got := containerCgroupDir(); got != "" {
+		t.Fatalf("containerCgroupDir() = %q, want \"\"", got)
+	}
+	if m := readContainerRootMemory(); m.ok {
+		t.Fatalf("readContainerRootMemory() = %+v, want not ok", m)
+	}
+}

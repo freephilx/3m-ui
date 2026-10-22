@@ -241,18 +241,113 @@ func TestMemoryFromHostRejectsEmptyStats(t *testing.T) {
 }
 
 // sampleMemory must report the host figures whenever /proc/meminfo is
-// readable, even when the process' cgroup carries a real memory limit (a
-// systemd MemoryMax, a container quota): the cap is not the machine.
+// readable and this process is not inside a container, even when the
+// process' cgroup carries a real memory limit (a systemd MemoryMax): the cap
+// is not the machine. Inside a container the container-root cap legitimately
+// wins — see TestSampleMemoryUsesContainerRootNotPanelUnit.
 func TestSampleMemoryPrefersHostOverCgroupLimit(t *testing.T) {
 	vMem, err := mem.VirtualMemory()
 	if err != nil || vMem == nil || vMem.Total <= 0 {
 		t.Skip("/proc/meminfo unavailable on this host")
 	}
 	info := sampleMemory()
+	if info.Total <= 0 || info.Percent < 0 || info.Percent > 100 {
+		t.Fatalf("implausible figures: %+v", info)
+	}
+	if runningInContainer() {
+		// The container branch may report the container's cap, but never
+		// more than the machine has.
+		if info.Total > float64(vMem.Total) {
+			t.Fatalf("total=%f exceeds the host total %d", info.Total, vMem.Total)
+		}
+		return
+	}
 	if info.Total != float64(vMem.Total) {
 		t.Fatalf("total=%f, want the host total %d", info.Total, vMem.Total)
 	}
-	if info.Percent < 0 || info.Percent > 100 {
-		t.Fatalf("percent out of range: %f", info.Percent)
+}
+
+// forceContainerDetection makes runningInContainer() report true through the
+// one signal that cannot collide with the host's own environment: the Docker
+// marker file. Every other signal is blanked or pointed at a missing path,
+// so detection has exactly one input.
+func forceContainerDetection(t *testing.T) {
+	t.Helper()
+	isolateContainerEnv(t)
+	resetContainerFiles(t)
+	markerFile(t, &dockerEnvPath)
+}
+
+// The user-visible regression this whole mechanism exists for: the panel
+// runs under systemd inside a 128MB container, the installer has written its
+// 72MB MemoryMax onto the panel's own unit, and the card must report the
+// container's 128MB — never the unit's cap, never the host's RAM.
+func TestSampleMemoryUsesContainerRootNotPanelUnit(t *testing.T) {
+	vMem, err := mem.VirtualMemory()
+	if err != nil || vMem == nil || vMem.Total <= 0 {
+		t.Skip("/proc/meminfo unavailable on this host")
+	}
+	if vMem.Total <= 128<<20 {
+		t.Skip("host has 128MB or less; the cap could not be told apart from the host total")
+	}
+	forceContainerDetection(t)
+	f := newCgroupFixture(t)
+	f.mount("cgroup2", "/")
+	f.selfV2("/system.slice/3m-ui.service")
+	f.cgroupV2("system.slice/3m-ui.service", 60*mb, 0, 72*mb) // the installer's cap
+	f.cgroupV2("", 100*mb, 10*mb, 128*mb)                     // the container itself
+
+	info := sampleMemory()
+	if int64(info.Total) != 128*mb {
+		t.Fatalf("total = %d, want the container's 128MB cap (not the unit's 72MB, not the host's %d)",
+			int64(info.Total), vMem.Total)
+	}
+	if int64(info.Used) != 90*mb {
+		t.Fatalf("used = %d, want the container's working set 90MB", int64(info.Used))
+	}
+	if diff := info.Percent - 70.3; diff > 0.1 || diff < -0.1 {
+		t.Fatalf("percent = %.2f, want ~70.3", info.Percent)
+	}
+}
+
+// An uncapped container keeps the host's RAM as Total but the container's
+// own working set as Used — the figures `docker stats` reports, and never
+// other tenants' activity.
+func TestSampleMemoryContainerUncappedUsesHostTotal(t *testing.T) {
+	vMem, err := mem.VirtualMemory()
+	if err != nil || vMem == nil || vMem.Total <= 0 {
+		t.Skip("/proc/meminfo unavailable on this host")
+	}
+	forceContainerDetection(t)
+	f := newCgroupFixture(t)
+	f.mount("cgroup2", "/")
+	f.selfV2("/system.slice/3m-ui.service")
+	f.cgroupV2("system.slice/3m-ui.service", 60*mb, 0, 0)
+	f.cgroupV2("", 100*mb, 10*mb, 0) // no cap anywhere
+
+	info := sampleMemory()
+	if info.Total != float64(vMem.Total) {
+		t.Fatalf("total = %f, want the host total %d", info.Total, vMem.Total)
+	}
+	if int64(info.Used) != 90*mb {
+		t.Fatalf("used = %d, want the container's working set 90MB", int64(info.Used))
+	}
+}
+
+// A container whose accounting cannot be resolved must fall back to the host
+// figures s-ui shows, not to a wrong number.
+func TestSampleMemoryContainerFallsBackToHostWhenUnresolvable(t *testing.T) {
+	vMem, err := mem.VirtualMemory()
+	if err != nil || vMem == nil || vMem.Total <= 0 {
+		t.Skip("/proc/meminfo unavailable on this host")
+	}
+	forceContainerDetection(t)
+	f := newCgroupFixture(t)
+	f.mount("cgroup2", "/")
+	f.selfV2("/somewhere/else")
+
+	info := sampleMemory()
+	if info.Total != float64(vMem.Total) {
+		t.Fatalf("total = %f, want the host total %d", info.Total, vMem.Total)
 	}
 }

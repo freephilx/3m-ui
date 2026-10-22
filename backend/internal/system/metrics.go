@@ -304,10 +304,10 @@ func diskInfo(u *disk.UsageStat) DiskInfo {
 	}
 }
 
-// memoryFromCgroup turns raw cgroup counters into MemoryInfo. It backs the
-// last-resort path sampleMemory falls back to when /proc/meminfo cannot be
-// read, and the per-process split on the process card. ok is false when
-// nothing usable came back.
+// memoryFromCgroup turns raw cgroup counters into MemoryInfo. It backs three
+// paths: the container branch of sampleMemory, the last resort when
+// /proc/meminfo cannot be read, and the per-process split on the process
+// card. ok is false when nothing usable came back.
 //
 // Two things make this more than an division:
 //
@@ -356,24 +356,28 @@ func memoryFromCgroup(cg cgroupMemory, hostTotal float64) (MemoryInfo, bool) {
 	}, true
 }
 
-// sampleMemory returns whole-host memory usage.
+// sampleMemory returns the memory figures the system card shows.
 //
-// The card reports what /proc/meminfo says about the machine: Used and Total
-// from mem.VirtualMemory(), with buffers and cache already discounted — the
-// same source and the same figures s-ui's GetMemInfo reports. cgroup
-// accounting is deliberately not preferred: the installer's systemd MemoryMax
-// is a self-protection cap, not a description of the machine, and preferring
-// it made a 128MB host look like it only had 72MB.
+// Three sources, in order:
 //
-// The trade, stated plainly: under a systemd MemoryMax, or inside a container
-// whose /proc/meminfo is not isolated (Docker, Kubernetes, lxcfs-less LXC), the
-// card describes the machine around the cgroup rather than the cap. That is
-// exactly what s-ui and 3x-ui show, and it is the behaviour being copied here.
+//   - Inside a container (runningInContainer), the accounting of the cgroup
+//     that represents the whole container. A real cap below the host's RAM
+//     becomes Total — that is the budget the kernel will actually enforce,
+//     and what `docker stats` reports — while the container's own working
+//     set becomes Used. With no cap, Total stays the host's RAM and Used is
+//     still the container's, never other tenants'. The panel's own service
+//     cgroup is never consulted: its MemoryMax is the installer's
+//     self-protection cap, not a description of the machine, and reading it
+//     made a 128MB box look like it had 72MB.
+//   - Otherwise what /proc/meminfo says about the host: Used and Total from
+//     mem.VirtualMemory(), with buffers and cache already discounted — the
+//     same source and the same figures s-ui's GetMemInfo reports. A systemd
+//     MemoryMax does not change this: it caps the panel, not the machine.
+//   - When /proc/meminfo cannot be read at all, cgroup accounting as a last
+//     resort.
 //
-// cgroup accounting survives as a last resort for environments where
-// /proc/meminfo cannot be read at all, and stays the source for the
-// per-process split on the process card. Per-process percentages divide by
-// this same total, so both memory cards stay on one basis.
+// Every branch degrades to the host figures when the container accounting
+// cannot be read, so an unrecognised runtime shows exactly what s-ui shows.
 func sampleMemory() MemoryInfo {
 	vMem, err := mem.VirtualMemory()
 	if err != nil || vMem == nil || vMem.Total <= 0 {
@@ -382,6 +386,11 @@ func sampleMemory() MemoryInfo {
 			return info
 		}
 		return MemoryInfo{}
+	}
+	if runningInContainer() {
+		if info, ok := memoryFromCgroup(readContainerRootMemory(), float64(vMem.Total)); ok {
+			return info
+		}
 	}
 	return memoryFromHost(vMem)
 }

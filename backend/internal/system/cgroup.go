@@ -343,15 +343,14 @@ func cgroupDirPath(mountPoint, fsType, rel string) string {
 	return ""
 }
 
-// selfCgroupDir returns the absolute sysfs directory for this process' cgroup
-// on the unified hierarchy (v2) or the memory controller (v1). Empty when the
-// path cannot be resolved — callers then fall back to the legacy root paths.
-func selfCgroupDir() string {
+// selfCgroupRel returns the /proc/self/cgroup path for the unified hierarchy
+// (v2) and for the v1 memory controller. Either may be empty when the
+// corresponding hierarchy is not in use or the file cannot be read.
+func selfCgroupRel() (v2Rel, v1MemRel string) {
 	data, err := os.ReadFile(procSelfCgroup)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	var v2Rel, v1MemRel string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -368,10 +367,18 @@ func selfCgroupDir() string {
 		}
 		// v1: "memory:/system.slice/3m-ui.service" or "1:memory:/..."
 		parts := strings.SplitN(line, ":", 3)
-		if len(parts) == 3 && (parts[1] == "memory" || strings.Contains(parts[1], "memory")) {
+		if len(parts) == 3 && strings.Contains(parts[1], "memory") {
 			v1MemRel = parts[2]
 		}
 	}
+	return v2Rel, v1MemRel
+}
+
+// selfCgroupDir returns the absolute sysfs directory for this process' cgroup
+// on the unified hierarchy (v2) or the memory controller (v1). Empty when the
+// path cannot be resolved — callers then fall back to the legacy root paths.
+func selfCgroupDir() string {
+	v2Rel, v1MemRel := selfCgroupRel()
 	if v2Rel != "" {
 		if dir := cgroupDirPath(sysfsCgroupRoot, "cgroup2", v2Rel); dir != "" {
 			return dir
@@ -458,4 +465,106 @@ func readServiceCgroupMemory() cgroupMemory {
 func readRootCgroupMemory() cgroupMemory {
 	m, _ := cgroupMemoryFiles(sysfsCgroupRoot, sysfsCgroupRoot+"/memory")
 	return m
+}
+
+// stripServiceSegments removes trailing systemd unit segments from a cgroup
+// path, stopping at a segment that marks a container boundary. A
+// docker-<id>.scope is both a systemd scope and the container itself, and
+// stripping it would step past the container into the host's hierarchy.
+func stripServiceSegments(rel string) string {
+	segs := strings.Split(strings.Trim(rel, "/"), "/")
+	for len(segs) > 0 {
+		seg := segs[len(segs)-1]
+		if !isServiceSegment(seg) || isContainerBoundarySegment(seg) {
+			break
+		}
+		segs = segs[:len(segs)-1]
+	}
+	if len(segs) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(segs, "/")
+}
+
+// isServiceSegment reports whether a cgroup path segment names a systemd
+// unit.
+func isServiceSegment(seg string) bool {
+	for _, suffix := range []string{".service", ".scope", ".slice", ".mount"} {
+		if strings.HasSuffix(seg, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// containerCgroupDir returns the directory of the cgroup that represents the
+// whole container — the one the runtime enforces the container's memory
+// budget on — or "" when it cannot be determined.
+//
+// The process' own cgroup is deliberately not that directory: a panel
+// running under systemd inside a container lives in the unit's cgroup, whose
+// MemoryMax is the installer's self-protection cap (48MiB×1.5, 72MB on a
+// 128MB box), not the container's. Reading it made the card report 72MB for
+// a 128MB machine.
+//
+// Three layouts, in the order they are recognised:
+//
+//   - Only the container's own cgroup is mounted at the cgroup root (LXC's
+//     cgroup:mixed). Whatever /proc/self/cgroup reports, the mount point is
+//     the container.
+//   - The whole hierarchy is visible and the reported path runs through a
+//     runtime's own segment (docker-<id>.scope, /docker/<id>, kubepods,
+//     lxc/<id>). Everything up to and including that segment is the
+//     container.
+//   - The whole hierarchy is visible and the path is nothing but systemd
+//     units — a private cgroup namespace (Docker, Kubernetes, modern LXC),
+//     where the runtime mounts exactly the container's cgroup as the root.
+func containerCgroupDir() string {
+	// Layout 1: a subtree bind-mounted at the cgroup root.
+	if cgroupMountRoot(sysfsCgroupRoot, "cgroup2") != "" {
+		return sysfsCgroupRoot
+	}
+	if cgroupMountRoot(sysfsCgroupRoot+"/memory", "cgroup") != "" {
+		return sysfsCgroupRoot + "/memory"
+	}
+
+	v2Rel, v1MemRel := selfCgroupRel()
+	if v2Rel == "" && v1MemRel == "" {
+		// Nothing to resolve against; the mounted root is the best guess.
+		return sysfsCgroupRoot
+	}
+	// Layouts 2 and 3: the reported path is relative to a hierarchy mounted
+	// in full. A runtime segment marks where the container begins; without
+	// one, the hierarchy root itself is the container.
+	if v2Rel != "" {
+		if root := stripServiceSegments(v2Rel); root == "/" {
+			if cgroupDirExists(sysfsCgroupRoot) {
+				return sysfsCgroupRoot
+			}
+		} else if dir := cgroupDirPath(sysfsCgroupRoot, "cgroup2", root); dir != "" {
+			return dir
+		}
+	}
+	if v1MemRel != "" {
+		if root := stripServiceSegments(v1MemRel); root == "/" {
+			if cgroupDirExists(sysfsCgroupRoot + "/memory") {
+				return sysfsCgroupRoot + "/memory"
+			}
+		} else if dir := cgroupDirPath(sysfsCgroupRoot+"/memory", "cgroup", root); dir != "" {
+			return dir
+		}
+	}
+	return ""
+}
+
+// readContainerRootMemory reads the accounting of the cgroup that represents
+// the whole container. ok is false when that cgroup cannot be found or read,
+// and callers then keep host-wide figures.
+func readContainerRootMemory() cgroupMemory {
+	if dir := containerCgroupDir(); dir != "" {
+		if m, ok := cgroupMemoryFiles(dir, dir); ok {
+			return m
+		}
+	}
+	return cgroupMemory{}
 }
