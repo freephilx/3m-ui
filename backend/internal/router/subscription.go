@@ -47,7 +47,7 @@ func subscriptionHandler(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		if target == "" {
 			target = detectSubTarget(c.GetHeader("User-Agent"))
 		}
-		// Built-in subscription info page — never route through external subconverter.
+		// Built-in subscription info page — always rendered locally.
 		wantsHTML := c.Query("html") == "1" || target == "html" || target == "page" ||
 			(strings.HasPrefix(strings.TrimSpace(accept), "text/html") && !strings.Contains(accept, "application/"))
 
@@ -144,8 +144,8 @@ func subscriptionHandler(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 				return
 			}
 			// Native Loon / Surge / Quantumult X exports. These clients speak
-			// their own node-line grammar; render them here instead of relying
-			// on an external subconverter service (which may be absent).
+			// their own node-line grammar; render them locally instead of
+			// depending on an external conversion service.
 			switch target {
 			case "loon":
 				raw, err = converter.GenerateUserLoonSubscription(db, pu, c.Request, node.ClientURIsWithCredentials)
@@ -190,16 +190,12 @@ func subscriptionHandler(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		converted, err := converter.CallSubconverterWithRequest(cfg, tok, target, raw)
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-			return
-		}
-		if isProxyUser {
-			writeSubHeaders(c, db, &pu)
-		}
-		c.Header("Cache-Control", "no-store")
-		c.Data(http.StatusOK, "text/plain; charset=utf-8", converted)
+		// Every target above this point is rendered natively. The external
+		// subconverter integration has been removed, so an unrecognized
+		// target is a client error rather than a forwarded service call.
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "unsupported subscription target: " + target,
+		})
 	}
 }
 
