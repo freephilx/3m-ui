@@ -27,11 +27,11 @@ const maxBlocklistValueLen = 253
 // Block types. Type is auto-detected from Value when empty; the audit UI
 // exposes the same set. Batch-import prefixes map onto them (see parseBlockLine).
 const (
-	BlockTypeDomain       = "domain"        // DOMAIN,exact.host,REJECT
-	BlockTypeDomainSuffix = "domain-suffix" // DOMAIN-SUFFIX,zone,REJECT
+	BlockTypeDomain        = "domain"         // DOMAIN,exact.host,REJECT
+	BlockTypeDomainSuffix  = "domain-suffix"  // DOMAIN-SUFFIX,zone,REJECT
 	BlockTypeDomainKeyword = "domain-keyword" // DOMAIN-KEYWORD,substr,REJECT
-	BlockTypeGeosite      = "geosite"       // GEOSITE,category,REJECT
-	BlockTypeIPCIDR       = "ip-cidr"       // IP-CIDR,net,REJECT
+	BlockTypeGeosite       = "geosite"        // GEOSITE,category,REJECT
+	BlockTypeIPCIDR        = "ip-cidr"        // IP-CIDR,net,REJECT
 )
 
 // BlockEntry is one website-audit blocklist row: a domain (or geosite
