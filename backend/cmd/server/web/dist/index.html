@@ -1,38 +1,35 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>3M-UI — 前端未嵌入</title>
-    <style>
-      :root { color-scheme: light dark; }
-      body {
-        margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-        font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-        background: #0f172a; color: #e2e8f0; padding: 2rem;
-      }
-      main { max-width: 42rem; line-height: 1.7; }
-      h1 { font-size: 1.5rem; margin: 0 0 .75rem; }
-      p { margin: .5rem 0; color: #94a3b8; }
-      code {
-        background: #1e293b; border: 1px solid #334155; border-radius: .375rem;
-        padding: .1rem .4rem; font-size: .9em; color: #f8fafc;
-      }
-      pre { background: #1e293b; border: 1px solid #334155; border-radius: .5rem; padding: .875rem 1rem; overflow-x: auto; }
-      pre code { background: none; border: none; padding: 0; }
-      .en { color: #64748b; font-size: .925rem; }
-    </style>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+    <link rel="apple-touch-icon" href="/logo-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#07152d" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="3m-ui" />
+    <!--
+      Security headers.
+      Note: <meta http-equiv> CSP is a defense-in-depth baseline; the
+      authoritative policy should still be sent by the backend / reverse
+      proxy as a real HTTP `Content-Security-Policy` response header
+      (meta tags cannot express `frame-ancestors`, but we set
+      X-Frame-Options DENY here as a belt-and-braces fallback).
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';" />
+    <meta name="referrer" content="same-origin" />
+    <meta http-equiv="X-Frame-Options" content="DENY" />
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta http-equiv="Referrer-Policy" content="same-origin" />
+    <title>3m-ui · Mihomo Core Manager UI</title>
+    <script type="module" crossorigin src="/assets/index-BTqTyQX1.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-B1qC6uTc.css">
   </head>
   <body>
-    <main>
-      <h1>3M-UI · 前端资源未嵌入</h1>
-      <p>此二进制由 <code>go build</code> 直接编译，未包含打包好的 Web 前端。请先构建前端并替换嵌入目录：</p>
-      <pre><code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build
-rm -rf backend/cmd/server/web/dist
-cp -r frontend/dist backend/cmd/server/web/dist
-cd backend &amp;&amp; CGO_ENABLED=0 go build -tags sqlite_modernc -o ../../3m-ui ./cmd/server</code></pre>
-      <p>或直接执行 <code>make build-linux</code>（其 <code>frontend-assets</code> 目标会自动完成上述步骤）。详见 README「从源码构建」。</p>
-      <p class="en">This binary was built without the web frontend. Build the frontend and copy it into <code>backend/cmd/server/web/dist</code> before compiling (see the Makefile <code>frontend-assets</code> target or the README).</p>
-    </main>
+    <div id="root"></div>
   </body>
 </html>

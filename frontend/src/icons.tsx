@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Fingerprint,
   ShieldCheck,
+  ShieldAlert,
   BookOpen,
   Terminal,
   Boxes,
@@ -144,6 +145,7 @@ export const IconNavShare = wrap(Share2, 'IconNavShare');
 export const IconNavTraffic = wrap(Activity, 'IconNavTraffic');
 export const IconNavCluster = wrap(Boxes, 'IconNavCluster');
 export const IconNavRouting = wrap(Route, 'IconNavRouting');
+export const IconNavAudit = wrap(ShieldAlert, 'IconNavAudit');
 export const IconNavCore = wrap(Cpu, 'IconNavCore');
 export const IconNavLogs = wrap(Terminal, 'IconNavLogs');
 export const IconNavConfig = wrap(SlidersHorizontal, 'IconNavConfig');

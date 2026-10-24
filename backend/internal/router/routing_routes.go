@@ -93,6 +93,34 @@ func registerRoutingRoutes(api *gin.RouterGroup, db *gorm.DB) {
 		c.JSON(http.StatusOK, saved)
 	})
 
+	// Website-audit blocklist (domains / IPs rejected server-side). Stored
+	// separately from server-routing so the routing editor cannot wipe it.
+	group.GET("/blocklist", func(c *gin.Context) {
+		entries, err := mihomoConfig.GetBlocklist(db)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, entries)
+	})
+	group.PUT("/blocklist", func(c *gin.Context) {
+		var entries []mihomoConfig.BlockEntry
+		if err := c.ShouldBindJSON(&entries); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := mihomoConfig.SaveBlocklist(db, entries); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		saved, err := mihomoConfig.GetBlocklist(db)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, saved)
+	})
+
 	// Rule providers (rule-set) — stored in server-routing; hot-update via Mihomo API.
 	group.GET("/rule-providers/status", func(c *gin.Context) {
 		controller := strings.TrimSpace(os.Getenv("THREE_M_UI_MIHOMO_CONTROLLER"))

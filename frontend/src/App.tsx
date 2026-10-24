@@ -35,6 +35,7 @@ import Settings from './pages/Settings';
 import TrafficPage from './pages/Traffic';
 import ClusterPage from './pages/Cluster';
 import RoutingPage from './pages/Routing';
+import AuditPage from './pages/Audit';
 import SharePage from './pages/Share';
 
 const ThemedApp: React.FC = () => {
@@ -102,6 +103,7 @@ const ThemedApp: React.FC = () => {
                     <Route path="/traffic" element={<TrafficPage />} />
                     <Route path="/cluster" element={<ClusterPage />} />
                     <Route path="/routing" element={<RoutingPage />} />
+                    <Route path="/audit" element={<AuditPage />} />
                     <Route path="/core" element={<Core />} />
                     <Route path="/logs" element={<Logs />} />
                     <Route path="/config" element={<ConfigPage />} />
