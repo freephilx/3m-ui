@@ -462,6 +462,12 @@ func writeSubHTML(c *gin.Context, db *gorm.DB, cfg *config.Config, pu models.Pro
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// The page is a single-file template whose interactive layer lives in an
+	// inline <script> block; the global SecurityHeaders policy (script-src
+	// 'self', no 'unsafe-inline') would block it and silently kill copy /
+	// i18n / toast. Re-issue the same policy with per-response sha256 hashes
+	// for this page's inline scripts (external scripts stay 'self').
+	c.Header("Content-Security-Policy", subpage.InlineScriptCSP(html))
 	c.Header("Cache-Control", "no-store")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", html)
 }
