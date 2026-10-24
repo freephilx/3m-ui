@@ -1175,6 +1175,7 @@ const Settings: React.FC = () => {
                       title: values.title || '',
                       support_url: values.support_url || '',
                       announce: values.announce || '',
+                      notices: values.notices || '',
                       web_page_url: values.web_page_url || '',
                       update_hours: values.update_hours ?? 12,
                       encrypt: !!values.encrypt,
@@ -1199,6 +1200,14 @@ const Settings: React.FC = () => {
                 </Form.Item>
                 <Form.Item name="announce" label={t('settings.subAnnounce') || 'Announce'} tooltip={fieldTip(t, 'settings.subAnnounceHint')}>
                   <Input.TextArea rows={2} />
+                </Form.Item>
+                <Form.Item
+                  name="notices"
+                  label={t('settings.subNotices') || 'Notice block'}
+                  tooltip={fieldTip(t, 'settings.subNoticesHint')}
+                  extra={t('settings.subNoticesExtra') || '格式：[*]日期|标题|详情，每行一条；行首 * 置顶'}
+                >
+                  <Input.TextArea rows={5} placeholder={'*09-15|机房升级通知|02:00-04:00 升级，请提前切换节点\n10-20|新增洛杉矶 LA-01 节点'} />
                 </Form.Item>
                 <Form.Item name="web_page_url" label={t('settings.subWebPage') || 'Web page URL'} tooltip={fieldTip(t, 'settings.subWebPageHint')}>
                   <Input />
