@@ -308,7 +308,7 @@ func parseBlockLine(line string) (BlockEntry, error) {
 
 // ParseBlocklistText parses a batch-import blob into normalized entries.
 func ParseBlocklistText(text string) ([]BlockEntry, error) {
-	var out []BlockEntry
+	out := []BlockEntry{}
 	for _, line := range strings.Split(text, "\n") {
 		e, err := parseBlockLine(line)
 		if err != nil {
@@ -319,6 +319,58 @@ func ParseBlocklistText(text string) ([]BlockEntry, error) {
 		}
 	}
 	return NormalizeBlocklist(out)
+}
+
+// BlocklistParseResult is the detailed outcome of a batch import: the
+// normalized entries ready to append plus per-line diagnostics, so the UI
+// never has to re-implement the parsing rules.
+type BlocklistParseResult struct {
+	Entries    []BlockEntry `json:"entries"`
+	Issues     []string     `json:"issues"`
+	Duplicates int          `json:"duplicates"`
+	Truncated  int          `json:"truncated"`
+}
+
+// ParseBlocklistTextDetailed parses a batch-import blob without aborting
+// on the first bad line: every rejected line is reported with its 1-based
+// line number. Duplicates inside the batch are dropped (first wins) and
+// the result is capped at maxBlocklistEntries.
+func ParseBlocklistTextDetailed(text string) BlocklistParseResult {
+	// Non-nil slices keep the JSON contract [] (never null) for the UI.
+	res := BlocklistParseResult{Entries: []BlockEntry{}, Issues: []string{}}
+	var out []BlockEntry
+	for i, line := range strings.Split(text, "\n") {
+		e, err := parseBlockLine(line)
+		if err != nil {
+			res.Issues = append(res.Issues, fmt.Sprintf("line %d: %s", i+1, err.Error()))
+			continue
+		}
+		if e.Value != "" {
+			out = append(out, e)
+		}
+	}
+	normalized, err := NormalizeBlocklist(out)
+	if err != nil {
+		// NormalizeBlocklist only fails on the cap or a validator miss;
+		// fall back to entry-by-entry normalization for diagnostics.
+		res.Issues = append(res.Issues, err.Error())
+		normalized = []BlockEntry{}
+		for i, e := range out {
+			norm, nerr := normalizeBlockEntry(e)
+			if nerr != nil {
+				res.Issues = append(res.Issues, fmt.Sprintf("entry #%d: %s", i+1, nerr.Error()))
+				continue
+			}
+			normalized = append(normalized, norm)
+		}
+	}
+	res.Duplicates = len(out) - len(normalized)
+	if len(normalized) > maxBlocklistEntries {
+		res.Truncated = len(normalized) - maxBlocklistEntries
+		normalized = normalized[:maxBlocklistEntries]
+	}
+	res.Entries = normalized
+	return res
 }
 
 // blockRule renders one entry as a Mihomo rule line targeting REJECT.

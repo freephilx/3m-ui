@@ -6,7 +6,10 @@ require gopkg.in/yaml.v3 v3.0.1
 
 require github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 
-require github.com/mholt/acmez/v3 v3.1.6
+require (
+	github.com/dlclark/regexp2 v1.12.0
+	github.com/mholt/acmez/v3 v3.1.6
+)
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect

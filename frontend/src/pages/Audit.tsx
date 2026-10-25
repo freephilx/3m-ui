@@ -29,8 +29,10 @@ import {
   BLOCK_TYPES,
   blockRuleLine,
   fetchBlocklist,
+  parseBlocklistImport,
   saveBlocklist,
   type BlockEntry,
+  type BlocklistImportResult,
 } from '../api/blocklist';
 import { generateConfig, applyConfigYAML } from '../api/config';
 import PageHeader from '../components/PageHeader';
@@ -56,6 +58,8 @@ const AuditPage: React.FC = () => {
   const [applying, setApplying] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
+  const [importPreview, setImportPreview] = useState<BlocklistImportResult | null>(null);
+  const [importParsing, setImportParsing] = useState(false);
   const [form] = Form.useForm();
 
   const load = useCallback(async () => {
@@ -113,39 +117,60 @@ const AuditPage: React.FC = () => {
     message.success(t('audit.addedUnsaved'));
   };
 
-  const runImport = () => {
-    const lines = importText
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#'));
-    if (!lines.length) {
+  const onImportParse = async () => {
+    if (!importText.trim()) {
       message.error(t('audit.importEmpty'));
       return;
     }
-    const parsed: BlockEntry[] = [];
-    for (const line of lines) {
-      let remark = '';
-      let body = line;
-      const hash = line.indexOf('#');
-      if (hash >= 0) {
-        remark = line.slice(hash + 1).trim();
-        body = line.slice(0, hash).trim();
-      }
-      let type = '';
-      const cut = body.indexOf(':');
-      if (cut > 0) {
-        const prefix = body.slice(0, cut).toLowerCase();
-        if (['full', 'suffix', 'keyword', 'geosite', 'ip'].includes(prefix)) {
-          type = prefix === 'full' ? 'domain' : prefix === 'suffix' ? 'domain-suffix' : prefix === 'ip' ? 'ip-cidr' : prefix;
-          body = body.slice(cut + 1).trim();
-        }
-      }
-      parsed.push({ type, value: body, remark, enabled: true });
+    setImportParsing(true);
+    try {
+      const res = await parseBlocklistImport(importText);
+      setImportPreview(res);
+    } catch (e: any) {
+      message.error(errMsg(e));
+    } finally {
+      setImportParsing(false);
     }
-    setEntries([...entries, ...parsed]);
+  };
+
+  const onImportApply = () => {
+    const preview = importPreview;
+    if (!preview) return;
+    const existing = new Set(entries.map((e) => `${e.type}:${e.value}`));
+    const fresh = preview.entries.filter((e) => !existing.has(`${e.type}:${e.value}`));
+    const dupExisting = preview.entries.length - fresh.length;
+    if (!fresh.length) {
+      message.info(t('audit.importAllDup'));
+      closeImport();
+      return;
+    }
+    if (entries.length + fresh.length > 5000) {
+      message.error(
+        ((t('audit.importCap') || 'Import would exceed the {max}-entry limit ({have} + {add})') as string)
+          .replace('{max}', '5000')
+          .replace('{have}', String(entries.length))
+          .replace('{add}', String(fresh.length)),
+      );
+      return;
+    }
+    setEntries([...entries, ...fresh]);
+    message.success(
+      ((t('audit.importDone') || 'Imported {n} entries (unsaved)') as string).replace('{n}', String(fresh.length)) +
+        (dupExisting > 0
+          ? ' · ' +
+            ((t('audit.importDupExisting') || '{n} duplicates of existing entries skipped') as string).replace(
+              '{n}',
+              String(dupExisting),
+            )
+          : ''),
+    );
+    closeImport();
+  };
+
+  const closeImport = () => {
     setImportOpen(false);
+    setImportPreview(null);
     setImportText('');
-    message.success(t('audit.importedUnsaved').replace('{n}', String(parsed.length)));
   };
 
   const toggleEntry = (index: number, enabled: boolean) => {
@@ -394,28 +419,114 @@ const AuditPage: React.FC = () => {
       <Modal
         title={t('audit.importTitle')}
         open={importOpen}
-        onOk={runImport}
-        onCancel={() => setImportOpen(false)}
-        okText={t('audit.importRun')}
-        cancelText={t('common.cancel')}
+        onOk={importPreview ? onImportApply : onImportParse}
+        okText={
+          importPreview
+            ? ((t('audit.importAccept') || 'Append {n} entries') as string).replace(
+                '{n}',
+                String(importPreview.entries.length),
+              )
+            : t('audit.importRun')
+        }
+        okButtonProps={{ disabled: importPreview ? importPreview.entries.length === 0 : false }}
+        confirmLoading={importParsing}
+        cancelText={importPreview ? t('audit.importBack') : t('common.cancel')}
+        onCancel={() => (importPreview ? setImportPreview(null) : closeImport())}
         width={isMobile ? '100%' : 560}
         destroyOnClose
       >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message={t('audit.importHintTitle')}
-          description={
-            <span style={{ whiteSpace: 'pre-line' }}>{t('audit.importHintBody')}</span>
-          }
-        />
-        <Input.TextArea
-          value={importText}
-          onChange={(e) => setImportText(e.target.value)}
-          rows={10}
-          placeholder={t('audit.importPlaceholder')}
-        />
+        {!importPreview ? (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={t('audit.importHintTitle')}
+              description={<span style={{ whiteSpace: 'pre-line' }}>{t('audit.importHintBody')}</span>}
+            />
+            <Input.TextArea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              rows={10}
+              placeholder={t('audit.importPlaceholder')}
+            />
+          </>
+        ) : (
+          <div>
+            <Alert
+              type={importPreview.issues.length ? 'warning' : 'success'}
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={
+                (t('audit.importPreviewTitle') || 'Parsed {n} entries').replace(
+                  '{n}',
+                  String(importPreview.entries.length),
+                ) +
+                (importPreview.duplicates > 0
+                  ? ' · ' +
+                    (t('audit.importDupBatch') || '{n} in-batch duplicates dropped').replace(
+                      '{n}',
+                      String(importPreview.duplicates),
+                    )
+                  : '') +
+                (importPreview.truncated > 0
+                  ? ' · ' +
+                    (t('audit.importTruncated') || '{n} over the cap were not imported').replace(
+                      '{n}',
+                      String(importPreview.truncated),
+                    )
+                  : '')
+              }
+              description={t('audit.importPreviewHint') || 'Entries are appended; remember to Save.'}
+            />
+            {importPreview.issues.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <Typography.Text type="danger">
+                  {((t('audit.importIssuesTitle') || '{n} lines rejected') as string).replace(
+                    '{n}',
+                    String(importPreview.issues.length),
+                  )}
+                </Typography.Text>
+                <div
+                  style={{
+                    maxHeight: 160,
+                    overflow: 'auto',
+                    border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                    borderRadius: 6,
+                    padding: 8,
+                    marginTop: 4,
+                  }}
+                >
+                  {importPreview.issues.map((iss) => (
+                    <div key={iss} style={{ fontSize: 12, marginBottom: 4 }}>
+                      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                        {iss}
+                      </Typography.Text>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <Typography.Text strong>{t('audit.importPreviewEntries') || 'Normalized entries'}</Typography.Text>
+            <pre
+              style={{
+                margin: '4px 0 0',
+                fontSize: 12,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                maxHeight: 240,
+                overflow: 'auto',
+                border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                borderRadius: 6,
+                padding: 8,
+              }}
+            >
+              {importPreview.entries
+                .map((e) => `${e.type || 'auto'}  ${e.value}${e.remark ? `  # ${e.remark}` : ''}`)
+                .join('\n')}
+            </pre>
+          </div>
+        )}
       </Modal>
     </div>
   );

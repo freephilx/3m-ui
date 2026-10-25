@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "واحد لكل سطر؛ النص بعد # ملاحظة",
     "importHintBody": "example.com → مطابقة اللاحقة\nfull:example.com → نطاق تام\nkeyword:cdn → مطابقة جزء من النص\ngeosite:google → فئة Geosite\nip:1.2.3.4 أو 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # ملاحظة\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "تم استيراد {n} إدخالات — لا تنسَ الحفظ",
     "listTitle": "قائمة الحظر",
     "colEnabled": "مُفعَّل",
     "colType": "النوع",

@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "Satır başına bir kayıt; # sonrası nottur",
     "importHintBody": "example.com → son ek eşleşmesi\nfull:example.com → tam alan adı\nkeyword:cdn → alt dize eşleşmesi\ngeosite:google → Geosite kategorisi\nip:1.2.3.4 veya 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # not\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "{n} kayıt içe aktarıldı — kaydetmeyi unutmayın",
     "listTitle": "Engel listesi",
     "colEnabled": "Etkin",
     "colType": "Tür",

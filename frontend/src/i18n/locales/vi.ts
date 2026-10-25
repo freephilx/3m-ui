@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "Mỗi dòng một mục; sau # là ghi chú",
     "importHintBody": "example.com → khớp hậu tố\nfull:example.com → tên miền chính xác\nkeyword:cdn → khớp từ khóa\ngeosite:google → danh mục Geosite\nip:1.2.3.4 hoặc 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # ghi chú\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "Đã nhập {n} mục — nhớ lưu lại",
     "listTitle": "Danh sách chặn",
     "colEnabled": "Đã bật",
     "colType": "Kiểu",

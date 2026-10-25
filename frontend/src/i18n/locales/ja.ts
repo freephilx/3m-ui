@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "1 行 1 件。# 以降はメモ",
     "importHintBody": "example.com → サフィックス一致\nfull:example.com → 完全一致ドメイン\nkeyword:cdn → キーワード一致\ngeosite:google → Geosite カテゴリ\nip:1.2.3.4 または 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # メモ\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "{n} 件インポートしました。保存を忘れずに",
     "listTitle": "ブロックリスト",
     "colEnabled": "有効",
     "colType": "タイプ",

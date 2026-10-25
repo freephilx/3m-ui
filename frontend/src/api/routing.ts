@@ -17,6 +17,31 @@ export const fetchRules = () =>
 export const saveRules = (rules: string[]) =>
   withNetworkRetry(() => client.put<string[]>('/config/rules', rules).then((r) => r.data));
 
+/** One rejected line from a routing batch import (backend single source of truth). */
+export interface RuleImportIssue {
+  line: number;
+  text: string;
+  reason: string;
+}
+
+/** Backend parse result: normalized rules + per-line diagnostics. */
+export interface RuleImportResult {
+  rules: string[];
+  duplicates: number;
+  issues: RuleImportIssue[];
+  truncated: number;
+}
+
+/**
+ * Validate + normalize a batch-import blob against the mihomo rule syntax
+ * (wiki.metacubex.one/config/rules). Never persists anything — the editor
+ * previews the result and appends the accepted lines on confirm.
+ */
+export const parseRulesImport = (text: string) =>
+  withNetworkRetry(() =>
+    client.post<RuleImportResult>('/config/rules/parse', { text }).then((r) => r.data),
+  );
+
 /** Mihomo rule-providers entry (wiki.metacubex.one/config/rule-providers). */
 export interface RuleProvider {
   name: string;

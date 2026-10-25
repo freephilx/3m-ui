@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "Satu per baris; teks setelah # adalah catatan",
     "importHintBody": "example.com → cocok akhiran\nfull:example.com → domain tepat\nkeyword:cdn → cocok substring\ngeosite:google → kategori Geosite\nip:1.2.3.4 atau 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # catatan\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "{n} entri diimpor — jangan lupa simpan",
     "listTitle": "Daftar blokir",
     "colEnabled": "Diaktifkan",
     "colType": "Jenis",

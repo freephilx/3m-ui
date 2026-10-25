@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "한 줄에 하나, # 뒤는 메모",
     "importHintBody": "example.com → 접미사 일치\nfull:example.com → 정확한 도메인\nkeyword:cdn → 키워드 일치\ngeosite:google → Geosite 카테고리\nip:1.2.3.4 또는 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # 메모\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "{n}개 가져옴 — 저장하는 것을 잊지 마세요",
     "listTitle": "차단 목록",
     "colEnabled": "활성화",
     "colType": "유형",

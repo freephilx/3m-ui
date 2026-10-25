@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "หนึ่งรายการต่อบรรทัด; ข้อความหลัง # คือหมายเหตุ",
     "importHintBody": "example.com → จับคู่คำท้าย\nfull:example.com → โดเมนตายตัว\nkeyword:cdn → จับคู่คำย่อย\ngeosite:google → หมวดหมู่ Geosite\nip:1.2.3.4 หรือ 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # หมายเหตุ\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "นำเข้า {n} รายการ — อย่าลืมบันทึก",
     "listTitle": "บัญชีบล็อก",
     "colEnabled": "เปิดใช้งาน",
     "colType": "ประเภท",

@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "Eine pro Zeile; Text nach # ist eine Notiz",
     "importHintBody": "example.com → Suffix-Treffer\nfull:example.com → exakte Domain\nkeyword:cdn → Teilstring-Treffer\ngeosite:google → Geosite-Kategorie\nip:1.2.3.4 oder 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # Notiz\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "{n} Einträge importiert — nicht vergessen zu speichern",
     "listTitle": "Blocklist",
     "colEnabled": "Aktiviert",
     "colType": "Typ",

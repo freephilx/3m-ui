@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "प्रति पंक्ति एक; # के बाद का टेक्स्ट टिप्पणी है",
     "importHintBody": "example.com → सफ़िक्स मिलान\nfull:example.com → सटीक डोमेन\nkeyword:cdn → सबस्ट्रिंग मिलान\ngeosite:google → Geosite श्रेणी\nip:1.2.3.4 या 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # टिप्पणी\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "{n} प्रविष्टियाँ इम्पोर्ट हुईँ — सहेजना मत भूलें",
     "listTitle": "ब्लॉकलिस्ट",
     "colEnabled": "सक्रिय",
     "colType": "प्रकार",

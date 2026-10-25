@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "Una por línea; el texto tras # es una nota",
     "importHintBody": "example.com → coincidencia por sufijo\nfull:example.com → dominio exacto\nkeyword:cdn → coincidencia por subcadena\ngeosite:google → categoría Geosite\nip:1.2.3.4 o 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # nota\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "{n} entradas importadas — recuerda guardar",
     "listTitle": "Lista de bloqueo",
     "colEnabled": "Activada",
     "colType": "Tipo",

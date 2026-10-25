@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "Une par ligne ; le texte après # est une remarque",
     "importHintBody": "example.com → correspondance par suffixe\nfull:example.com → domaine exact\nkeyword:cdn → correspondance par mot-clé\ngeosite:google → catégorie Geosite\nip:1.2.3.4 ou 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # remarque\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "{n} entrées importées — pensez à enregistrer",
     "listTitle": "Liste de blocage",
     "colEnabled": "Activée",
     "colType": "Type",

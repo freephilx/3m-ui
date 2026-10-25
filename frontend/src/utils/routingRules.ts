@@ -6,6 +6,8 @@ export type RuleRow = {
   payload: string;
   target: string;
   noResolve: boolean;
+  /** Exact trailing param for lossless round-trip ('src' implies no-resolve in mihomo). */
+  param?: 'no-resolve' | 'src';
   /** If set, serialize as-is (unparsed advanced rule). */
   raw?: string;
 };
@@ -31,6 +33,36 @@ export function newRuleKey(): string {
   keySeq += 1;
   return `r-${Date.now()}-${keySeq}`;
 }
+
+/**
+ * Rule types whose payload may itself contain commas (mihomo
+ * ParseRulePayload): the target is the LAST field and everything between
+ * type and target is the payload. These cannot be represented by the
+ * structured editor row, so they round-trip as raw lines.
+ */
+export const COMMA_PAYLOAD_TYPES = [
+  'NOT',
+  'OR',
+  'AND',
+  'SUB-RULE',
+  'DOMAIN-REGEX',
+  'PROCESS-NAME-REGEX',
+  'PROCESS-PATH-REGEX',
+] as const;
+
+/** Rule types that accept no-resolve / src params (mihomo rules/parser.go). */
+export const PARAM_RULE_TYPES = [
+  'GEOIP',
+  'SRC-GEOIP',
+  'IP-ASN',
+  'SRC-IP-ASN',
+  'IP-CIDR',
+  'IP-CIDR6',
+  'SRC-IP-CIDR',
+  'IP-SUFFIX',
+  'SRC-IP-SUFFIX',
+  'RULE-SET',
+] as const;
 
 export function emptyRule(partial?: Partial<RuleRow>): RuleRow {
   return {
@@ -62,14 +94,21 @@ export function parseRuleLine(line: string): RuleRow {
       noResolve: false,
     });
   }
+  // Comma-payload types (logic rules, regex rules) cannot be split into
+  // type/payload/target without corrupting the line — keep them raw.
+  if ((COMMA_PAYLOAD_TYPES as readonly string[]).includes(type)) {
+    return emptyRule({ type: 'DOMAIN-SUFFIX', payload: '', target: 'DIRECT', raw: trimmed });
+  }
   // TYPE,payload,target[,no-resolve]
   if (parts.length >= 3) {
-    const noResolve = parts.slice(3).some((p) => p.toLowerCase() === 'no-resolve');
+    const params = parts.slice(3).map((p) => p.toLowerCase());
+    const param = params.includes('src') ? 'src' : params.includes('no-resolve') ? 'no-resolve' : undefined;
     return emptyRule({
       type,
       payload: parts[1] || '',
       target: parts[2] || 'DIRECT',
-      noResolve,
+      noResolve: param === 'no-resolve',
+      ...(param ? { param } : {}),
     });
   }
   // TYPE,target only (unusual) or unparsed
@@ -90,14 +129,22 @@ export function serializeRule(row: RuleRow): string {
   }
   const payload = (row.payload || '').trim();
   let s = `${type},${payload},${target}`;
-  if (row.noResolve && (type === 'IP-CIDR' || type === 'IP-CIDR6' || type === 'GEOIP')) {
-    s += ',no-resolve';
+  if ((PARAM_RULE_TYPES as readonly string[]).includes(type)) {
+    if (row.param) {
+      s += `,${row.param}`;
+    } else if (row.noResolve) {
+      s += ',no-resolve';
+    }
   }
   return s;
 }
 
 export function parseRulesText(text: string): RuleRow[] {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  // Comments and blank lines are skipped, mirroring the backend import parser.
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
   if (!lines.length) return [emptyRule({ type: 'MATCH', target: 'DIRECT' })];
   return lines.map(parseRuleLine);
 }

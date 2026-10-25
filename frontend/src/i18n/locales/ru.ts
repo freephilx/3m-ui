@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "По одной в строке; текст после # — примечание",
     "importHintBody": "example.com → по суффиксу\nfull:example.com → точный домен\nkeyword:cdn → по подстроке\ngeosite:google → категория Geosite\nip:1.2.3.4 или 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # заметка\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "Импортировано записей: {n} — не забудьте сохранить",
     "listTitle": "Список блокировки",
     "colEnabled": "Включено",
     "colType": "Тип",

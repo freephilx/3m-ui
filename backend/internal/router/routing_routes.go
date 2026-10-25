@@ -121,6 +121,35 @@ func registerRoutingRoutes(api *gin.RouterGroup, db *gorm.DB) {
 		c.JSON(http.StatusOK, saved)
 	})
 
+	// Batch-import parse endpoints. Both scopes (client subscription rules
+	// and server egress rules) share the same mihomo rule syntax, so one
+	// parser serves both; parsing never persists anything — the editor
+	// previews the normalized lines and appends them on confirm.
+	group.POST("/rules/parse", func(c *gin.Context) {
+		var req struct {
+			Text string `json:"text"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, mihomoConfig.ParseRulesText(req.Text))
+	})
+
+	// Website-audit blocklist batch import: same single-source principle —
+	// the backend owns parsing/validation/normalization, the UI only
+	// previews and appends.
+	group.POST("/blocklist/parse", func(c *gin.Context) {
+		var req struct {
+			Text string `json:"text"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, mihomoConfig.ParseBlocklistTextDetailed(req.Text))
+	})
+
 	// Rule providers (rule-set) — stored in server-routing; hot-update via Mihomo API.
 	group.GET("/rule-providers/status", func(c *gin.Context) {
 		controller := strings.TrimSpace(os.Getenv("THREE_M_UI_MIHOMO_CONTROLLER"))

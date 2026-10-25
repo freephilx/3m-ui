@@ -1227,7 +1227,6 @@ export default {
     "importHintTitle": "Jeden na linię; tekst po # to uwaga",
     "importHintBody": "example.com → dopasowanie przyrostka\nfull:example.com → dokładna domena\nkeyword:cdn → dopasowanie fragmentu\ngeosite:google → kategoria Geosite\nip:1.2.3.4 lub 10.0.0.0/8 → IP/CIDR",
     "importPlaceholder": "ads.example.com\nfull:exact.example.com # uwaga\nip:1.2.3.4\n10.0.0.0/8",
-    "importedUnsaved": "Zaimportowano {n} wpisów — pamiętaj, aby zapisać",
     "listTitle": "Lista blokad",
     "colEnabled": "Włączone",
     "colType": "Typ",

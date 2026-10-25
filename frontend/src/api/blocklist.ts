@@ -17,6 +17,24 @@ export const saveBlocklist = (entries: BlockEntry[]) =>
     client.put<BlockEntry[]>('/config/blocklist', entries).then((r) => r.data),
   );
 
+/** Backend blocklist batch-import result: normalized entries + diagnostics. */
+export interface BlocklistImportResult {
+  entries: BlockEntry[];
+  issues: string[];
+  duplicates: number;
+  truncated: number;
+}
+
+/**
+ * Validate + normalize a website-audit batch-import blob on the backend —
+ * the single source of truth for parsing rules (the UI only previews and
+ * appends). Never persists anything.
+ */
+export const parseBlocklistImport = (text: string) =>
+  withNetworkRetry(() =>
+    client.post<BlocklistImportResult>('/config/blocklist/parse', { text }).then((r) => r.data),
+  );
+
 /** Block types exposed by the UI; labels are resolved via i18n. */
 export const BLOCK_TYPES = [
   'domain',

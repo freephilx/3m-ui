@@ -37,8 +37,10 @@ import {
   fetchServerRouting,
   saveServerRouting,
   updateRuleProvider,
+  parseRulesImport,
   type GroupEntry,
   type RuleProvider,
+  type RuleImportResult,
 } from '../api/routing';
 import { generateConfig, applyConfigYAML, fetchProxies } from '../api/config';
 import PageHeader from '../components/PageHeader';
@@ -46,6 +48,7 @@ import { useI18n } from '../i18n';
 import useIsMobile from '../hooks/useIsMobile';
 import {
   RULE_TYPES,
+  PARAM_RULE_TYPES,
   type RuleRow,
   emptyRule,
   parseRulesText,
@@ -96,6 +99,10 @@ const RoutingPage: React.FC = () => {
   const [rpUpdating, setRpUpdating] = useState<string | null>(null);
   const [rpForm] = Form.useForm();
   const [form] = Form.useForm();
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importPreview, setImportPreview] = useState<RuleImportResult | null>(null);
+  const [importParsing, setImportParsing] = useState(false);
 
   const targetOptions = useMemo(() => {
     const set = new Set<string>(['DIRECT', 'REJECT', 'COMPATIBLE', 'WARP']);
@@ -199,6 +206,76 @@ const RoutingPage: React.FC = () => {
 
   const activeRules = scope === 'server' ? serverRules : rules;
   const setActiveRules = scope === 'server' ? setServerRules : setRules;
+
+  /** Ends-with-MATCH detection that also covers raw (logic/regex) rows. */
+  const endsWithMatch = (rows: RuleRow[]): boolean => {
+    const last = rows[rows.length - 1];
+    if (!last) return false;
+    if (last.raw) return last.raw.trim().toUpperCase().startsWith('MATCH');
+    return (last.type || '').toUpperCase() === 'MATCH';
+  };
+
+  const onImportParse = async () => {
+    const text = importText.trim();
+    if (!text) {
+      message.error(t('routing.importEmpty') || 'Nothing to import');
+      return;
+    }
+    setImportParsing(true);
+    try {
+      const res = await parseRulesImport(importText);
+      setImportPreview(res);
+    } catch (e: any) {
+      message.error(errMsg(e));
+    } finally {
+      setImportParsing(false);
+    }
+  };
+
+  const onImportApply = () => {
+    const preview = importPreview;
+    if (!preview) return;
+    const existing = new Set(serializeRules(activeRules));
+    const fresh = preview.rules.filter((r) => !existing.has(r));
+    const dupExisting = preview.rules.length - fresh.length;
+    if (!fresh.length) {
+      message.info(t('routing.importAllDup') || 'All imported rules already exist in the editor');
+      setImportOpen(false);
+      setImportPreview(null);
+      setImportText('');
+      return;
+    }
+    const rows = parseRulesText(fresh.join('\n'));
+    setActiveRules((prev) => {
+      // Rules after a trailing MATCH can never match — insert before it.
+      if (prev.length > 1 && endsWithMatch(prev)) {
+        return [...prev.slice(0, -1), ...rows, prev[prev.length - 1]];
+      }
+      return [...prev, ...rows];
+    });
+    message.success(
+      ((t('routing.importDone') || 'Imported {n} rules (unsaved)') as string).replace(
+        '{n}',
+        String(fresh.length),
+      ) +
+        (dupExisting > 0
+          ? ' · ' +
+            ((t('routing.importDupExisting') || '{n} duplicates of existing rules skipped') as string).replace(
+              '{n}',
+              String(dupExisting),
+            )
+          : ''),
+    );
+    setImportOpen(false);
+    setImportPreview(null);
+    setImportText('');
+  };
+
+  const closeImport = () => {
+    setImportOpen(false);
+    setImportPreview(null);
+    setImportText('');
+  };
 
   const onSaveRules = async () => {
     const current = scope === 'server' ? serverRules : rules;
@@ -397,6 +474,9 @@ const RoutingPage: React.FC = () => {
           <Button size="small">{t('routing.templates') || 'Templates'}</Button>
         </Dropdown>
       ) : null}
+      <Button size="small" onClick={() => setImportOpen(true)}>
+        {t('routing.importOpen') || 'Batch import'}
+      </Button>
       <Button size="small" icon={<IconAddRule />} onClick={addRule}>
         {t('routing.addRule') || 'Add rule'}
       </Button>
@@ -743,7 +823,7 @@ const RoutingPage: React.FC = () => {
                     onChange={(v) => updateRule(index, { target: v })}
                     placeholder="DIRECT"
                   />
-                  {(row.type === 'IP-CIDR' || row.type === 'IP-CIDR6' || row.type === 'GEOIP') && (
+                  {PARAM_RULE_TYPES.includes(row.type as (typeof PARAM_RULE_TYPES)[number]) && (
                     <Space>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                         no-resolve
@@ -751,7 +831,7 @@ const RoutingPage: React.FC = () => {
                       <Switch
                         size="small"
                         checked={row.noResolve}
-                        onChange={(v) => updateRule(index, { noResolve: v })}
+                        onChange={(v) => updateRule(index, { noResolve: v, param: v ? 'no-resolve' : undefined })}
                       />
                     </Space>
                   )}
@@ -782,6 +862,121 @@ const RoutingPage: React.FC = () => {
         </div>
         <div style={{ marginTop: 8, opacity: 0.65, fontSize: 12 }}>{t('routing.rulesHint')}</div>
       </Card>
+
+      <Modal
+        open={importOpen}
+        title={t('routing.importTitle') || 'Batch import rules'}
+        onOk={importPreview ? onImportApply : onImportParse}
+        okText={
+          importPreview
+            ? ((t('routing.importAccept') || 'Append {n} rules') as string).replace(
+                '{n}',
+                String(importPreview.rules.length),
+              )
+            : t('routing.importParse') || 'Parse & preview'
+        }
+        okButtonProps={{ disabled: importPreview ? importPreview.rules.length === 0 : false }}
+        confirmLoading={importParsing}
+        cancelText={importPreview ? t('routing.importBack') || 'Back' : t('common.cancel')}
+        onCancel={() => (importPreview ? setImportPreview(null) : closeImport())}
+        width={isMobile ? '100%' : 640}
+        destroyOnClose
+      >
+        {!importPreview ? (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={t('routing.importHintTitle') || 'One rule per line — mihomo official syntax'}
+              description={<span style={{ whiteSpace: 'pre-line' }}>{t('routing.importHintBody') || ''}</span>}
+            />
+            <Input.TextArea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              rows={12}
+              placeholder={t('routing.importPlaceholder') || ''}
+            />
+            <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}>
+              {t('routing.importTargetHint') || ''}
+            </Typography.Paragraph>
+          </>
+        ) : (
+          <div>
+            <Alert
+              type={importPreview.issues.length ? 'warning' : 'success'}
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={
+                (t('routing.importPreviewTitle') || 'Parsed {n} rules').replace('{n}', String(importPreview.rules.length)) +
+                (importPreview.duplicates > 0
+                  ? ' · ' +
+                    (t('routing.importDupBatch') || '{n} in-batch duplicates dropped').replace(
+                      '{n}',
+                      String(importPreview.duplicates),
+                    )
+                  : '') +
+                (importPreview.truncated > 0
+                  ? ' · ' +
+                    (t('routing.importTruncated') || '{n} over the cap were not imported').replace(
+                      '{n}',
+                      String(importPreview.truncated),
+                    )
+                  : '')
+              }
+              description={t('routing.importBeforeMatch') || ''}
+            />
+            {importPreview.issues.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <Typography.Text type="danger">
+                  {((t('routing.importIssuesTitle') || '{n} lines rejected') as string).replace(
+                    '{n}',
+                    String(importPreview.issues.length),
+                  )}
+                </Typography.Text>
+                <div
+                  style={{
+                    maxHeight: 160,
+                    overflow: 'auto',
+                    border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                    borderRadius: 6,
+                    padding: 8,
+                    marginTop: 4,
+                  }}
+                >
+                  {importPreview.issues.map((iss) => (
+                    <div key={`${iss.line}-${iss.reason}`} style={{ fontSize: 12, marginBottom: 4 }}>
+                      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                        #{iss.line}
+                      </Typography.Text>{' '}
+                      <Typography.Text code style={{ fontSize: 12 }}>
+                        {iss.text}
+                      </Typography.Text>{' '}
+                      — {iss.reason}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <Typography.Text strong>{t('routing.importPreviewRules') || 'Normalized rules'}</Typography.Text>
+            <pre
+              style={{
+                margin: '4px 0 0',
+                fontSize: 12,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                maxHeight: 240,
+                overflow: 'auto',
+                border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                borderRadius: 6,
+                padding: 8,
+              }}
+            >
+              {importPreview.rules.join('\n')}
+            </pre>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={groupOpen}
