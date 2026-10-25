@@ -1,13 +1,15 @@
 openapi: 3.0.3
 info:
   title: 3m-ui API
-  version: "1.3"
+  version: "1.4"
   description: |
     REST API for the 3m-ui Mihomo management panel.
 
-    Server egress: GET/PUT /config/server-routing (serving Mihomo rules + warpDomains).
+    Server egress: GET/PUT /config/server-routing (serving Mihomo rules + warpDomains + ruleProviders).
     WARP account: GET/POST/DELETE /system/warp (injects outbound WARP at config apply).
     Client subscription rules: /config/rules and /config/groups (visual-config only).
+    Batch import (both scopes): POST /config/rules/parse and POST /config/blocklist/parse — preview only, never persist.
+    Website-audit blocklist: GET/PUT /config/blocklist (server-side REJECT entries, stored apart from server-routing).
 
     - Base path: `/api/v1`
     - Admin routes need `Authorization: Bearer <jwt>` from `POST /auth/login` (or GitHub OAuth callback when enabled)
@@ -1383,6 +1385,294 @@ paths:
         "200":
           description: application/yaml
 
+  /config/rules:
+    get:
+      tags: [config]
+      summary: List client-subscription routing rules (visual-config only)
+      description: Does not affect the serving Mihomo process.
+      responses:
+        "200":
+          description: string[] rule lines
+    put:
+      tags: [config]
+      summary: Replace client-subscription routing rules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { type: string }
+      responses:
+        "200":
+          description: Saved rules
+  /config/rules/parse:
+    post:
+      tags: [config]
+      summary: Batch-import parse for routing rules (preview only, never persists)
+      description: |
+        Validates one pasted rule per line against the strict mihomo v1.19.33 rule
+        syntax (https://wiki.metacubex.one/config/rules) and returns the normalized
+        lines ready to append. Serves BOTH scopes — client subscription
+        (`/config/rules`) and server egress (`/config/server-routing`) share one
+        syntax, so one parser serves both. `#` starts a comment line; blank lines
+        are ignored. Accepted lines are normalized (canonical TYPE,payload,target
+        form, e.g. `GEOIP,CN` -> `GEOIP,cn`; bare IPs gain `/32` or `/128`).
+        Rejected lines are reported one by one (1-based line number + reason)
+        without aborting the batch; duplicates inside the batch are dropped; a
+        batch is capped at 5000 rules (`truncated` counts the overflow). Rule
+        targets (proxy / group names) are resolved later at generate/apply time
+        by the core, not here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, description: "Raw pasted blob, one rule per line" }
+      responses:
+        "200":
+          description: Parse result (normalized rules + issues)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleImportResult'
+  /config/groups:
+    get:
+      tags: [config]
+      summary: List client-subscription proxy-groups (visual-config)
+      responses:
+        "200":
+          description: Group list
+    put:
+      tags: [config]
+      summary: Replace client-subscription proxy-groups
+      responses:
+        "200":
+          description: Saved groups
+  /config/server-routing:
+    get:
+      tags: [config]
+      summary: Get server egress routing (serving Mihomo)
+      description: |
+        Controls how traffic leaves the VPS after hitting listeners.
+        Distinct from visual-config (client subscription).
+        When warpDomains is non-empty, a saved WARP account is required at apply time.
+      responses:
+        "200":
+          description: ServerRoutingConfig
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proxies:
+                    type: array
+                    items: { type: object }
+                  proxyGroups:
+                    type: array
+                    items: { type: object }
+                  rules:
+                    type: array
+                    items: { type: string }
+                    example: ["MATCH,DIRECT"]
+                  warpDomains:
+                    type: array
+                    items: { type: string }
+                    description: Domains (or GEOSITE:name) routed via outbound WARP
+                  ruleProviders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RuleProvider'
+                    description: Mihomo rule-providers (rule-set), written top-level at apply; referenced by RULE-SET rules
+    put:
+      tags: [config]
+      summary: Save server egress routing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                proxies: { type: array, items: { type: object } }
+                proxyGroups: { type: array, items: { type: object } }
+                rules: { type: array, items: { type: string } }
+                warpDomains: { type: array, items: { type: string } }
+                ruleProviders:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RuleProvider'
+      responses:
+        "200":
+          description: Saved ServerRoutingConfig
+  /config/blocklist:
+    get:
+      tags: [config]
+      summary: List website-audit blocklist entries (server-side REJECT)
+      description: |
+        Stored separately from server-routing so the routing editor cannot wipe
+        it. Each enabled entry becomes one REJECT rule in the serving Mihomo
+        config for every client behind a listener.
+      responses:
+        "200":
+          description: BlockEntry[]
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BlockEntry'
+    put:
+      tags: [config]
+      summary: Replace website-audit blocklist entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/BlockEntry'
+      responses:
+        "200":
+          description: Saved entries
+        "400":
+          description: Invalid entries
+  /config/blocklist/parse:
+    post:
+      tags: [config]
+      summary: Website-audit blocklist batch import (preview only, never persists)
+      description: |
+        Same single-source principle as /config/rules/parse: the backend owns
+        parsing / validation / normalization, the UI only previews and appends.
+        Optional line prefixes map onto entry types (`domain:`, `domain-suffix:`,
+        `domain-keyword:`, `geosite:`, `ip:`); unmarked lines are auto-detected.
+        Rejected lines are reported with their 1-based line number without
+        aborting the batch; duplicates inside the batch are dropped (first wins);
+        the batch is capped at 5000 entries (`truncated` counts the overflow).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, description: "Raw pasted blob, one entry per line" }
+      responses:
+        "200":
+          description: Parse result (entries + issues)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlocklistParseResult'
+  /config/rule-providers/status:
+    get:
+      tags: [config]
+      summary: Live rule-provider status from Mihomo (GET /providers/rules)
+      responses:
+        "200":
+          description: providers object from core
+        "502":
+          description: core API unreachable
+  /config/rule-providers/{name}/update:
+    put:
+      tags: [config]
+      summary: Hot-update one rule-set (Mihomo PUT /providers/rules/{name})
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+        "502":
+          description: update failed
+  /system/warp:
+    get:
+      tags: [system]
+      summary: WARP account status (no secrets)
+      responses:
+        "200":
+          description: WARPAccountView
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured: { type: boolean }
+                  device_id: { type: string }
+                  license_key: { type: string }
+                  address_v4: { type: string }
+                  address_v6: { type: string }
+                  endpoint_host: { type: string }
+                  endpoint_port: { type: integer }
+                  peer_public_key: { type: string }
+                  updated_at: { type: string, format: date-time }
+                  proxy_name: { type: string, example: WARP }
+    post:
+      tags: [system]
+      summary: Register Cloudflare WARP and persist account
+      description: |
+        Creates a WARP device, stores warp-account in panel settings, and enables
+        outbound name WARP for server egress. Query mode=wireguard|masque selects YAML preview.
+      parameters:
+        - in: query
+          name: mode
+          schema: { type: string, enum: [wireguard, masque] }
+      responses:
+        "200":
+          description: account + optional yaml
+        "502":
+          description: Cloudflare registration failed
+    delete:
+      tags: [system]
+      summary: Delete persisted WARP account
+      responses:
+        "200":
+          description: ok
+  /system/templates/warp/register:
+    post:
+      tags: [system]
+      summary: Register WARP (YAML + persist account by default)
+      description: |
+        Same registration as POST /system/warp. Persists account unless nosave=1.
+        Prefer POST /system/warp for account lifecycle.
+      parameters:
+        - in: query
+          name: mode
+          schema: { type: string, enum: [wireguard, masque, both] }
+        - in: query
+          name: nosave
+          schema: { type: string, enum: ["1"] }
+          description: Skip persisting warp-account
+      responses:
+        "200":
+          description: yaml / masque_yaml and addresses
+        "502":
+          description: Registration failed
+  /system/templates/warp:
+    post:
+      tags: [system]
+      summary: Build WireGuard YAML from operator-supplied keys (advanced)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                private_key: { type: string }
+                address: { type: string }
+                ipv6: { type: string }
+                reserved: { type: string }
+      responses:
+        "200":
+          description: yaml
+
 components:
   schemas:
 
@@ -1439,6 +1729,71 @@ components:
             $ref: '#/components/schemas/ProxyEntry'
         proxyGroups: { type: array, items: { type: object } }
         rules: { type: array, items: { type: string } }
+    RuleImportIssue:
+      type: object
+      description: One rejected import line (never aborts the batch)
+      properties:
+        line: { type: integer, description: "1-based line number in the pasted blob" }
+        text: { type: string }
+        reason: { type: string }
+    RuleImportResult:
+      type: object
+      description: Outcome of POST /config/rules/parse
+      properties:
+        rules:
+          type: array
+          items: { type: string }
+          description: Normalized rule lines ready to append (JSON array, never null)
+        duplicates: { type: integer, description: "Dropped duplicates inside the batch" }
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleImportIssue'
+          description: "JSON array, never null"
+        truncated: { type: integer, description: "Lines over the 5000-rule cap" }
+    BlockEntry:
+      type: object
+      description: One website-audit blocklist row (REJECT in serving Mihomo)
+      properties:
+        type:
+          type: string
+          enum: [domain, domain-suffix, domain-keyword, geosite, ip-cidr]
+          description: Auto-detected from value when empty
+        value: { type: string }
+        remark: { type: string }
+        enabled: { type: boolean }
+    BlocklistParseResult:
+      type: object
+      description: Outcome of POST /config/blocklist/parse
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockEntry'
+          description: "JSON array, never null"
+        issues:
+          type: array
+          items: { type: string }
+          description: "Rejected lines with 1-based line numbers; JSON array, never null"
+        duplicates: { type: integer, description: "Dropped duplicates inside the batch (first wins)" }
+        truncated: { type: integer, description: "Entries over the 5000 cap" }
+    RuleProvider:
+      type: object
+      description: Mihomo rule-providers entry (https://wiki.metacubex.one/config/rule-providers/)
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [http, file, inline] }
+        behavior: { type: string, enum: [domain, ipcidr, classical] }
+        format: { type: string, enum: [yaml, text, mrs] }
+        url: { type: string, description: "Required when type=http" }
+        path: { type: string, description: "Under Mihomo -d home; auto (./rule-providers/{name}.{format}) when empty" }
+        interval: { type: integer, description: "Seconds; http update interval" }
+        proxy: { type: string, description: "Download via this outbound (e.g. DIRECT)" }
+        payload:
+          type: array
+          items: { type: string }
+          description: "inline only"
+        sizeLimit: { type: integer, description: "Bytes; 0 = unlimited" }
     ProxyEntry:
       type: object
       properties:
@@ -1558,190 +1913,3 @@ components:
       bearerFormat: JWT
 security:
   - bearerAuth: []
-
-
-  /config/rules:
-    get:
-      tags: [config]
-      summary: List client-subscription routing rules (visual-config only)
-      description: Does not affect the serving Mihomo process.
-      responses:
-        "200":
-          description: string[] rule lines
-    put:
-      tags: [config]
-      summary: Replace client-subscription routing rules
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items: { type: string }
-      responses:
-        "200":
-          description: Saved rules
-  /config/groups:
-    get:
-      tags: [config]
-      summary: List client-subscription proxy-groups (visual-config)
-      responses:
-        "200":
-          description: Group list
-    put:
-      tags: [config]
-      summary: Replace client-subscription proxy-groups
-      responses:
-        "200":
-          description: Saved groups
-  /config/server-routing:
-    get:
-      tags: [config]
-      summary: Get server egress routing (serving Mihomo)
-      description: |
-        Controls how traffic leaves the VPS after hitting listeners.
-        Distinct from visual-config (client subscription).
-        When warpDomains is non-empty, a saved WARP account is required at apply time.
-      responses:
-        "200":
-          description: ServerRoutingConfig
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  proxies:
-                    type: array
-                    items: { type: object }
-                  proxyGroups:
-                    type: array
-                    items: { type: object }
-                  rules:
-                    type: array
-                    items: { type: string }
-                    example: ["MATCH,DIRECT"]
-                  warpDomains:
-                    type: array
-                    items: { type: string }
-                    description: Domains (or GEOSITE:name) routed via outbound WARP
-    put:
-      tags: [config]
-      summary: Save server egress routing
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                proxies: { type: array, items: { type: object } }
-                proxyGroups: { type: array, items: { type: object } }
-                rules: { type: array, items: { type: string } }
-                warpDomains: { type: array, items: { type: string } }
-      responses:
-        "200":
-          description: Saved ServerRoutingConfig
-  /config/rule-providers/status:
-    get:
-      tags: [config]
-      summary: Live rule-provider status from Mihomo (GET /providers/rules)
-      responses:
-        "200":
-          description: providers object from core
-        "502":
-          description: core API unreachable
-  /config/rule-providers/{name}/update:
-    put:
-      tags: [config]
-      summary: Hot-update one rule-set (Mihomo PUT /providers/rules/{name})
-      parameters:
-        - in: path
-          name: name
-          required: true
-          schema: { type: string }
-      responses:
-        "200":
-          description: ok
-        "502":
-          description: update failed
-  /system/warp:
-    get:
-      tags: [system]
-      summary: WARP account status (no secrets)
-      responses:
-        "200":
-          description: WARPAccountView
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  configured: { type: boolean }
-                  device_id: { type: string }
-                  license_key: { type: string }
-                  address_v4: { type: string }
-                  address_v6: { type: string }
-                  endpoint_host: { type: string }
-                  endpoint_port: { type: integer }
-                  peer_public_key: { type: string }
-                  updated_at: { type: string, format: date-time }
-                  proxy_name: { type: string, example: WARP }
-    post:
-      tags: [system]
-      summary: Register Cloudflare WARP and persist account
-      description: |
-        Creates a WARP device, stores warp-account in panel settings, and enables
-        outbound name WARP for server egress. Query mode=wireguard|masque selects YAML preview.
-      parameters:
-        - in: query
-          name: mode
-          schema: { type: string, enum: [wireguard, masque] }
-      responses:
-        "200":
-          description: account + optional yaml
-        "502":
-          description: Cloudflare registration failed
-    delete:
-      tags: [system]
-      summary: Delete persisted WARP account
-      responses:
-        "200":
-          description: ok
-  /system/templates/warp/register:
-    post:
-      tags: [system]
-      summary: Register WARP (YAML + persist account by default)
-      description: |
-        Same registration as POST /system/warp. Persists account unless nosave=1.
-        Prefer POST /system/warp for account lifecycle.
-      parameters:
-        - in: query
-          name: mode
-          schema: { type: string, enum: [wireguard, masque, both] }
-        - in: query
-          name: nosave
-          schema: { type: string, enum: ["1"] }
-          description: Skip persisting warp-account
-      responses:
-        "200":
-          description: yaml / masque_yaml and addresses
-        "502":
-          description: Registration failed
-  /system/templates/warp:
-    post:
-      tags: [system]
-      summary: Build WireGuard YAML from operator-supplied keys (advanced)
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                private_key: { type: string }
-                address: { type: string }
-                ipv6: { type: string }
-                reserved: { type: string }
-      responses:
-        "200":
-          description: yaml
-
